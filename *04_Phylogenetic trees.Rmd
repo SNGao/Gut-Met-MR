@@ -1,0 +1,565 @@
+---
+title: "系统发育树美化"
+---
+
+```{r}
+library(ggtree)
+library(Biostrings)
+library(ape)
+library(ggtreeExtra)
+
+length(unique(dat.tree.raw.data$Genus)) # 117 (131)
+length(unique(dat.tree.raw.data$Family)) # 37 (35)
+length(unique(dat.tree.raw.data$Order)) # 20 (20)
+length(unique(dat.tree.raw.data$Class)) # 11 (16)
+length(unique(dat.tree.raw.data$Phylum)) # 7
+
+dat.tree.raw.data = read.csv('04_Formal_Results/Phylogenetic tree/generated.tree.csv')
+dat.tree.raw.data$X = NULL
+dat.tree.raw.data[] = lapply(dat.tree.raw.data, as.factor)
+tree <- as.phylo(~Kingdom/Phylum/Class/Order/Family/Genus, data=dat.tree.raw.data)
+```
+
+# 01.初级版本
+```{r}
+# 可视化所建立的树
+## 创建phylo对象
+
+
+p1 = ggtree(tree, layout = "circular", branch.length = "none", size = 0.5) + 
+    # color ：修改基因ID的颜色
+    # hjust ：调节基因ID的位置
+    # size ：修改基因ID大小
+    # offset ：修改分支到基因ID的距离
+  geom_tippoint(color = "lightgreen", size = 0.3)# 在分支末端加上形状
+
+# 生成注释文件
+## 读取Gut-ASD的数据文件
+dat.Gut.ASD = read.csv('01_Gut_Out/03_results/Gut_ASD_NotCheckConfounding.csv') |>
+  filter(method == 'Inverse variance weighted',
+         grepl('genus.', Exposure),
+         !grepl('unknowngenus', Exposure)) |>
+  select(Exposure, b, pval) |>
+  mutate(Exposure = sub('PRESSO_final_', '', Exposure),
+         Exposure = sub('PRESSO_NULL_final_', '', Exposure),
+         Exposure = sub('.csv', '', Exposure),
+         Exposure = replace_..(Exposure),
+         Exposure = replace_..(Exposure),
+         Exposure = sub('\\.id.*', '', Exposure),
+         Exposure = sub('\\ id.*', '', Exposure))
+
+dat.anno = merge(dat.tree.raw.data, dat.Gut.ASD, 
+      by.y = 'Exposure',
+      by.x = 'Genus',
+      all.x = TRUE) |> 
+  select(Genus, b, pval) |>
+  mutate(OR = exp(b),
+         `-Log P` = -log10(pval))
+dat.anno$OR[dat.anno$OR>=1.5] = 1.5
+
+p2 = p1 + ggnewscale::new_scale_fill() + 
+      geom_fruit(
+          data=dat.anno,
+          geom=geom_tile,
+          mapping=aes(y=Genus, fill=OR),
+          offset=0.08,   # 调节
+          pwidth=0.55 # width of the external layer, default is 0.2 times of x range of tree.
+      ) + 
+      scale_fill_gradient2(low = "blue",
+                           mid = "white", 
+                           midpoint = 1,
+                           high = 'red',
+                           limits = c(0.5, 1.5))
+  #geom_tiplab(color = "grey50", hjust = -0.1, size = 1, offset = 1.2)# 添加基因ID
+
+p3 = p2 + ggnewscale::new_scale_fill() +
+      geom_fruit(
+          data=dat.anno,
+          geom=geom_col,
+          mapping=aes(y=Genus, x=`-Log P`, fill=`-Log P`), 
+          pwidth=0.4,offset = 0.1,
+          axis.params=list(
+                          axis="x", # 添加x轴文字
+                          text.size=2, #文字大小
+                          text.angle=-45, # 角度
+                          hjust=0  # 调节
+                      ),
+          # grid.params=list() # 添加网格线
+      ) + 
+  geom_tiplab(color = "grey50", hjust = -0.1, size = 1.5, offset = 1.8)
+
+print(p3)
+```
+
+# 02.美化的学习阶段
+## 弧形彩色阴影标注
+```{r}
+families <- unique(dat.tree.raw.data$Family)
+family_colors <- rainbow(length(families))
+names(family_colors) <- families
+
+p1 <- ggtree(tree, layout = "circular", branch.length = "none", size = 0.5)
+
+# 为每个Family添加高亮圈
+for(i in seq_along(families)) {
+  p1 <- p1 + geom_hilight(node = MRCA(tree, which(tree$tip.label %in% 
+                          dat.tree.raw.data$Genus[dat.tree.raw.data$Family == families[i]])), 
+                          fill = family_colors[i], alpha = 0.2)
+}
+print(p1)
+```
+
+## 为指定的familty提供外围标注
+```{r}
+family_nodes <- MRCA(tree, 
+                     dat.tree.raw.data$Genus[dat.tree.raw.data$Family == "Lachnospiraceae"])
+
+p1 <- ggtree(tree, layout = "circular", branch.length = "none", size = 0.5)
+p2 <- p1 + geom_cladelab(node = family_nodes, label = "Family_name", 
+                       angle = 0, offset = 0.1, 
+                       barsize = 0.5, fontsize = 3, offset.text = 0.1)
+print(p2)
+```
+```{r}
+library(ggtree)
+library(ggplot2)
+library(dplyr)
+library(tidytree)
+
+# 准备数据
+node_data <- data.frame(
+  node = 1:length(tree$tip.label),
+  p_value = runif(length(tree$tip.label), 0, 0.2),  # 模拟 p 值
+  beta = rnorm(length(tree$tip.label), 0, 0.1)  # 模拟 beta 值
+)
+
+# 绘制基本树
+p <- ggtree(tree, layout = "circular", branch.length = "none")
+
+# 获取所有唯一的 Family
+families <- unique(dat.tree.raw.data$Family)
+
+# 为每个 Family 添加折叠和标记
+for (family in 'Prevotellaceae') {
+  # 找到 Family 的最近共同祖先节点
+  family_node <- MRCA(tree, dat.tree.raw.data$Genus[dat.tree.raw.data$Family == 'Prevotellaceae'])
+  
+  # 高亮该 Family 的分支
+  # p <- p + geom_hilight(node = family_node, fill = "lightblue", alpha = 0.3)
+  
+  # 获取该节点的位置
+  node_position <- p$data[p$data$node == family_node, c("x", "y")]
+  
+  # 在分支的中心位置添加点
+  p <- p + geom_point2(data = node_position, aes(x = x, y = y),
+                       shape = 21, size = 3, fill = "lightblue", color = "black")
+  
+}
+
+p
+```
+
+### 同时标记Genus和family
+```{r}
+# 创建一个包含要标注的菌群的列表
+taxa_to_annotate <- list(
+  'Prevotellaceae' = 'family',
+  'genus LachnospiraceaeND3007group' = 'genus',
+  'genus RuminococcaceaeUCG005' = 'genus',
+  'genus Dorea' = 'genus',
+  'genus Ruminiclostridium6' = 'genus',
+  'genus Ruminococcus1' = 'genus',
+  'genus Sutterella' = 'genus',
+  'genus Turicibacter' = 'genus'
+  # 添加更多你想标注的菌群
+)
+
+# 为每个菌群添加标记
+p1 <- ggtree(tree, layout = "circular", branch.length = "none", size = 0.3)
+
+# 获取所有唯一的 Order
+orders <- unique(dat.tree.raw.data$Order)
+# 为每个 Order 创建一个唯一的颜色
+order_colors <- rainbow(length(orders))
+names(order_colors) <- orders
+
+# 为每个 Order 添加高亮圈
+for(i in seq_along(orders)) {
+  current_order <- orders[i]
+  
+  # 找到属于当前 Order 的所有 Genus
+  genera_in_order <- dat.tree.raw.data$Genus[dat.tree.raw.data$Order == current_order]
+  
+  # 找到这些 Genus 的最近共同祖先节点
+  order_node <- MRCA(tree, which(tree$tip.label %in% genera_in_order))
+  
+  p1 <- p1 + geom_hilight(node = order_node, 
+                          fill = order_colors[current_order], 
+                          alpha = 0.05)
+}
+
+# 生成注释文件
+## 读取Gut-ASD的数据文件
+dat.Gut.ASD = read.csv('01_Gut_Out/03_results/Gut_ASD_NotCheckConfounding.csv') |>
+  filter(method == 'Inverse variance weighted',
+         grepl('genus.', Exposure),
+         !grepl('unknowngenus', Exposure)) |>
+  select(Exposure, b, pval) |>
+  mutate(Exposure = sub('PRESSO_final_', '', Exposure),
+         Exposure = sub('PRESSO_NULL_final_', '', Exposure),
+         Exposure = sub('.csv', '', Exposure),
+         Exposure = replace_..(Exposure),
+         Exposure = replace_..(Exposure),
+         Exposure = sub('\\.id.*', '', Exposure),
+         Exposure = sub('\\ id.*', '', Exposure))
+
+dat.anno = merge(dat.tree.raw.data, dat.Gut.ASD, 
+      by.y = 'Exposure',
+      by.x = 'Genus',
+      all.x = TRUE) |> 
+  select(Genus, b, pval) |>
+  mutate(OR = exp(b),
+         `-Log P` = -log10(pval))
+dat.anno$OR[dat.anno$OR>=1.5] = 1.5
+
+p2 = p1 + ggnewscale::new_scale_fill() + 
+      geom_fruit(
+          data=dat.anno,
+          geom=geom_tile,
+          mapping=aes(y=Genus, fill=OR),
+          offset=0.08,
+          pwidth=0.55 # width of the external layer, default is 0.2 times of x range of tree.
+      ) + 
+      scale_fill_gradient2(low = "green",
+                           mid = "white", 
+                           midpoint = 1,
+                           high = 'red',
+                           limits = c(0.5, 1.5))
+p3 = p2 + ggnewscale::new_scale_fill() +
+      geom_fruit(
+          data=dat.anno,
+          geom=geom_col,
+          mapping=aes(y=Genus, x=`-Log P`, fill=`-Log P`), 
+          pwidth=0.4,offset = 0.1,
+          axis.params=list(
+                          axis="x", # 添加x轴文字
+                          text.size=2, #文字大小
+                          text.angle=-45, # 角度
+                          hjust=0  # 调节
+                      ),
+          grid.params=list() # 添加网格线
+      )
+
+
+# 创建一个空的列表来存储所有点的数据
+all_points <- list()
+
+for (i in seq_along(taxa_to_annotate)) {
+  taxon <- names(taxa_to_annotate)[i]
+  level <- taxa_to_annotate[[taxon]]
+  
+  if (level == 'family') {
+    nodes <- dat.tree.raw.data$Genus[dat.tree.raw.data$Family == taxon]
+  } else {
+    nodes <- taxon
+  }
+  
+  # 找到菌群的最近共同祖先节点
+  taxon_node <- MRCA(tree, nodes)
+  
+  # 获取该节点的位置
+  node_position <- p$data[p$data$node == taxon_node, c("x", "y")]
+  
+  # 添加标签编号和分类级别
+  node_position$label <- i
+  node_position$level <- level
+  
+  all_points[[i]] <- node_position # 将这个点的数据添加到列表中
+}
+
+# 将所有点的数据合并成一个数据框
+all_points_df <- do.call(rbind, all_points)
+
+# 在分支的中心位置添加带数字的点
+p3 + 
+  geom_point2(data = all_points_df, aes(x = x, y = y, fill = level),
+              shape = 21, size = 3, color = "black") +
+  geom_text(data = all_points_df, aes(x = x, y = y, label = label),
+            size = 2, color = "black") +
+  scale_fill_manual(values = c("family" = "lightblue", "genus" = "lightgreen"))
+
+```
+
+# 03.最终版美化
+## Not Control Confounding
+```{r}
+library(ggtree)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggnewscale)
+
+# 读取数据
+dat.Gut.ASD <- read.csv('01_Gut_Out/03_results/Gut_ASD_NotCheckConfounding.csv') %>%
+  filter(method == 'Inverse variance weighted',
+         grepl('genus.', Exposure),
+         !grepl('unknowngenus', Exposure)) %>%
+  select(Exposure, b, pval) %>%
+  mutate(Exposure = sub('PRESSO_final_|PRESSO_NULL_final_|\\.csv', '', Exposure) %>%
+           gsub('\\.', ' ', .) %>%
+           sub('id.*', '', .))
+
+# 合并数据
+dat.Gut.ASD = read.csv('01_Gut_Out/03_results/Gut_ASD_NotCheckConfounding.csv') |>
+  filter(method == 'Inverse variance weighted',
+         grepl('genus.', Exposure),
+         !grepl('unknowngenus', Exposure)) |>
+  select(Exposure, b, pval) |>
+  mutate(Exposure = sub('PRESSO_final_', '', Exposure),
+         Exposure = sub('PRESSO_NULL_final_', '', Exposure),
+         Exposure = sub('.csv', '', Exposure),
+         Exposure = replace_..(Exposure),
+         Exposure = replace_..(Exposure),
+         Exposure = sub('\\.id.*', '', Exposure),
+         Exposure = sub('\\ id.*', '', Exposure))
+
+dat.anno = merge(dat.tree.raw.data, dat.Gut.ASD, 
+      by.y = 'Exposure',
+      by.x = 'Genus',
+      all.x = TRUE) |> 
+  select(Genus, b, pval) |>
+  mutate(OR = exp(b),
+         `-Log P` = -log10(pval))
+dat.anno$OR[dat.anno$OR>=1.5] = 1.5
+
+
+# 定义要标注的菌群
+taxa_to_annotate <- c('genus RuminococcaceaeUCG005',
+                      'Prevotellaceae', 
+                      'genus LachnospiraceaeND3007group', 
+                      'genus Dorea', 
+                      'genus Ruminiclostridium5', 
+                      'genus Ruminococcus1', 
+                      'genus Sutterella', 
+                      'genus Turicibacter',
+                      'genus Eubacteriumhalliigroup')
+
+# 创建树
+p <- ggtree(tree, layout = "circular", branch.length = "none", size = 0.3)
+
+# 添加Order高亮
+orders <- unique(dat.tree.raw.data$Order)
+order_colors <- setNames(rainbow(length(orders)), orders)
+
+p <- p + geom_hilight(aes(node = node, fill = Order), 
+                      alpha = 0.2, 
+                      data = dat.tree.raw.data %>%
+                        group_by(Order) %>%
+                        summarise(node = MRCA(tree, which(tree$tip.label %in% Genus))) %>%
+                        mutate(Order = factor(Order, levels = names(order_colors)))) + guides(fill = "none") 
+                                                                # 不显示标签
+# 添加外环
+p <- p + 
+  new_scale_fill() +
+  geom_fruit(data = dat.anno, geom = geom_tile,
+             mapping = aes(y = Genus, fill = OR),
+             offset = 0.08, pwidth = 0.55) +
+  scale_fill_gradient2(low = "green", mid = "white", high = 'red',
+                       midpoint = 1, limits = c(0.5, 1.5)) +
+  new_scale_fill() +
+  geom_fruit(data = dat.anno, geom = geom_col,
+             mapping = aes(y = Genus, x = `-Log P`, fill = `-Log P`),
+             pwidth = 0.4, offset = 0.1,
+             axis.params = list(axis = "x", text.size = 2, text.angle = -45, hjust = 0),
+             grid.params=list())
+
+# 添加标注点
+annotation_data <- data.frame(
+  taxon = taxa_to_annotate,
+  level = ifelse(grepl("genus", taxa_to_annotate), "genus", "family"),
+  label = seq_along(taxa_to_annotate)
+) %>%
+  rowwise() %>%
+  mutate(node = if(level == "family") {
+    MRCA(tree, dat.tree.raw.data$Genus[dat.tree.raw.data$Family == taxon])
+  } else {
+    MRCA(tree, taxon)
+  }) %>%
+  left_join(p$data[, c("node", "x", "y")], by = "node")
+
+p = p +
+  geom_point2(data = annotation_data, aes(x = x, y = y),
+              shape = 21, size = 4, fill = "#F5A746", color = "#F5A746") + # 背景点
+  geom_point2(data = annotation_data, aes(x = x, y = y),
+              shape = 21, size = 4, color = "#F5A746")+
+  geom_text(data = annotation_data[-length(annotation_data$taxon),], aes(x = x, y = y, label = label),
+            size = 3, color = "black", face = 'bold') + 
+  geom_text(data = annotation_data[length(annotation_data$taxon),], aes(x = x, y = y, label = '+'),
+            size = 3, color = "black", face = 'bold')
+
+
+p2 = p + theme(
+  legend.position = "bottom",  # 将图例放在底部
+  legend.box = "horizontal",   # 图例水平排列
+  legend.title = element_text(size = 11, face = 'bold'),  # 调整图例标题字体大小
+  legend.text = element_text(size = 9),   # 调整图例文本字体大小
+  legend.key.size = unit(0.5, "cm")       # 调整图例键的大小
+)
+
+pdf('04_Formal_Results/Phylogenetic tree/PhyloAnalysis.plot.pdf')
+print(p2)
+dev.off()
+
+dat.tree.raw.data[grepl('Eubacteriumhall', dat.tree.raw.data$Genus),]
+```
+
+
+## Control Confounding
+```{r}
+library(ggtree)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggnewscale)
+
+# 合并数据
+dat.Gut.ASD = read.csv('01_Gut_Out/03_results/Gut_ASD_noConfounding_191.csv') |>
+  filter(method == 'Inverse variance weighted',
+         grepl('genus.', Exposure),
+         !grepl('unknowngenus', Exposure)) |>
+  select(Exposure, b, pval) |>
+  mutate(Exposure = sub('PRESSO_final_', '', Exposure),
+         Exposure = sub('PRESSO_NULL_final_', '', Exposure),
+         Exposure = sub('.csv', '', Exposure),
+         Exposure = replace_..(Exposure),
+         Exposure = replace_..(Exposure),
+         Exposure = sub('\\.id.*', '', Exposure),
+         Exposure = sub('\\ id.*', '', Exposure))
+
+dat.anno = merge(dat.tree.raw.data, dat.Gut.ASD, 
+      by.y = 'Exposure',
+      by.x = 'Genus',
+      all.x = TRUE) |> 
+  select(Genus, b, pval) |>
+  mutate(OR = exp(b),
+         `-Log P` = -log10(pval))
+dat.anno$OR[dat.anno$OR>=1.5] = 1.5
+
+
+# 定义要标注的菌群
+taxa_to_annotate <- c('Prevotellaceae', 
+                      'genus RuminococcaceaeUCG005',
+                      'genus LachnospiraceaeND3007group', 
+                      'genus Dorea', 
+                      'genus Ruminiclostridium5', 
+                      'genus Ruminococcus1',
+                      'genus Turicibacter',
+                      'genus Eubacteriumhalliigroup',
+                      'genus Sutterella')
+
+# 创建树
+p <- ggtree(tree, layout = "circular", branch.length = "none", size = 0.3)
+
+# 添加Order高亮
+orders <- unique(dat.tree.raw.data$Order)
+order_colors <- setNames(rainbow(length(orders)), orders)
+
+p <- p + geom_hilight(aes(node = node, fill = Order), 
+                      alpha = 0.2, 
+                      data = dat.tree.raw.data %>%
+                        group_by(Order) %>%
+                        summarise(node = MRCA(tree, which(tree$tip.label %in% Genus))) %>%
+                        mutate(Order = factor(Order, levels = names(order_colors)))) + guides(fill = "none") 
+                                                                # 不显示标签
+# 添加外环
+p <- p + 
+  new_scale_fill() +
+  geom_fruit(data = dat.anno, geom = geom_tile,
+             mapping = aes(y = Genus, fill = OR),
+             offset = 0.08, pwidth = 0.55) +
+  scale_fill_gradient2(low = "green", mid = "white", high = 'red',
+                       midpoint = 1, limits = c(0.5, 1.5)) +
+  new_scale_fill() +
+  geom_fruit(data = dat.anno, geom = geom_col,
+             mapping = aes(y = Genus, x = `-Log P`, fill = `-Log P`),
+             pwidth = 0.4, offset = 0.1,
+             
+             axis.params = list(axis = "x", text.size = 2, text.angle = -45, hjust = 0,
+                                limits = c(0,3)),
+             grid.params=list())
+
+# 添加标注点
+annotation_data <- data.frame(
+  taxon = taxa_to_annotate,
+  level = ifelse(grepl("genus", taxa_to_annotate), "genus", "family"),
+  label = seq_along(taxa_to_annotate)
+) %>%
+  rowwise() %>%
+  mutate(node = if(level == "family") {
+    MRCA(tree, dat.tree.raw.data$Genus[dat.tree.raw.data$Family == taxon])
+  } else {
+    MRCA(tree, taxon)
+  }) %>%
+  left_join(p$data[, c("node", "x", "y")], by = "node")
+
+p = p +
+  geom_point2(data = annotation_data, aes(x = x, y = y),
+              shape = 21, size = 4, fill = "#F5A746", color = "#F5A746") + # 背景点
+  geom_point2(data = annotation_data, aes(x = x, y = y),
+              shape = 21, size = 4, color = "#F5A746")+
+  geom_text(data = annotation_data, aes(x = x, y = y, label = label),
+            size = 3, color = "black", face = 'bold')
+
+p2 = p + theme(
+  legend.position = "bottom",  # 将图例放在底部
+  legend.box = "horizontal",   # 图例水平排列
+  legend.title = element_text(size = 11, face = 'bold'),  # 调整图例标题字体大小
+  legend.text = element_text(size = 9),   # 调整图例文本字体大小
+  legend.key.size = unit(0.5, "cm")       # 调整图例键的大小
+)
+
+pdf('04_Formal_Results/Phylogenetic tree/PhyloAnalysis.plot.Noconfounding.pdf')
+print(p2)
+dev.off()
+
+dat.tree.raw.data[grepl('Lachno', dat.tree.raw.data$Genus),]
+```
+## 尝试从肠道菌群富集对应的通路
+```{r}
+# install.packages(c("KEGGREST", "clusterProfiler", "org.Hs.eg.db"))
+# library(KEGGREST)
+# library(clusterProfiler)
+# library(org.Hs.eg.db)
+# 
+# get_genus_ko <- function(genus) {
+#   # 首先获取所有可用的生物体
+#   organisms <- keggList("organism")
+#   
+#   # 查找与属名匹配的生物体
+#   matching_organisms <- organisms[grepl(genus, organisms, ignore.case = TRUE)]
+#   
+#   if (length(matching_organisms) > 0) {
+#     # 使用第一个匹配的生物体
+#     organism_code <- names(matching_organisms)[1]
+#     
+#     # 获取该生物体的基因列表
+#     genes <- keggList(organism_code)
+#     
+#     # 获取这些基因对应的KO
+#     ko_list <- keggLink("ko", organism_code)
+#     
+#     return(names(ko_list))
+#   } else {
+#     return(NULL)
+#   }
+# }
+# genera <- c("Ruminococcus", "Prevotella", "Dorea", "Sutterella", "Turicibacter")
+# 
+# # 获取每个属的KO列表
+# ko_lists <- lapply(genera, get_genus_ko)
+# names(ko_lists) <- genera
+# 
+# # 合并所有KO
+# all_ko <- unique(unlist(ko_lists))
+```
+

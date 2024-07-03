@@ -1,0 +1,559 @@
+---
+title: "02_Mediation"
+---
+# 加载必须的Package和function
+```{r}
+library(TwoSampleMR)
+library(data.table)
+library(MRPRESSO)
+library(stringr)
+library(vroom) # 快速读取大文件
+library(readr)#调用read函数
+library(ieugwasr)
+library(gwasvcf)
+library(VariantAnnotation)
+library(dplyr)
+library(magrittr)
+
+source('Function-MR_Analyze.R')
+source('Function-DATA_process.R')
+source('Function-DATA_read.R')
+source('main_function.R')
+```
+
+# 01.筛选显著的Gut-ASD and Met-ASD
+## Gut-ASD
+```{r}
+data_raw = read.csv('01_Gut_Out/03_results/Gut_ASD_NotCheckConfounding.csv'); data_raw$X = NULL
+data_raw <- data_raw %>%
+  filter(!grepl("Simple mode", method))
+
+data_sig = data_raw[data_raw$method == 'Inverse variance weighted',] |>
+  filter(pval < 0.05)
+
+## 判断是否通过稳定性检验
+data_sig <- data_sig %>%
+  group_by(Exposure) %>%
+  mutate(same_sign = all(sign(b) == sign(b[1]))) %>%
+  filter(same_sign == TRUE)
+
+file_list_gut = sub('PRESSO_', '', sub('NULL_', '', data_sig$Exposure))
+```
+
+## Met-ASD
+```{r}
+data_raw = read.csv('01_Met_Out/03_results/Met_ASD_NotCheckConfounding'); data_raw$X = NULL
+data_raw <- data_raw %>%
+  filter(!grepl("Simple mode", method))
+
+data_sig = data_raw[data_raw$method == 'Inverse variance weighted',] |>
+  filter(pval < 0.05)
+
+## 判断是否通过稳定性检验
+data_sig <- data_sig %>%
+  group_by(Exposure) %>%
+  mutate(same_sign = all(sign(b) == sign(b[1]))) %>%
+  filter(same_sign == TRUE)
+
+file_list_met = sub('PRESSO_', '', sub('NULL_', '', data_sig$Exposure))
+
+## Check Label Name
+met_list = read.csv('01_Met_Out/met-a.csv')
+file_list_met_clean = sub('.csv', '', sub('final_CLUMP_', '', file_list_met))
+mapping_vector <- setNames(met_list$Trait, met_list$GWASID)
+
+tmp.name = data.frame(mapping_vector[file_list_met_clean])
+colnames(tmp.name) = 'Trait'
+tmp.name$Label = row.names(tmp.name)
+```
+
+
+## Gut-Met 数据匹配
+```{r}
+save_folder = '02_Gut_Met/SNP_selected/'
+folder_path = '01_Gut_Out/00_SNP_selected/FINAL/'
+met_list = read.csv('01_Met_Out/met-a.csv')
+
+result_total = data.frame()
+result_Egger_total = data.frame()
+
+for (gut in file_list_gut){
+    Sys.sleep(10)
+  Gut_SNP = read.csv(paste(c(folder_path, gut), collapse = '')); Gut_SNP$X = NULL
+  file_gut = gsub(".csv", '', gsub("check_", "", gut))
+  
+  for (met in file_list_met_clean){
+    Sys.sleep(2)
+    flag <- TRUE
+    while (flag) {tryCatch({
+      Met = extract_outcome_data(snps = Gut_SNP$SNP,
+                                 outcomes = met,
+                                 proxies = FALSE) 
+      flag <- FALSE
+    },
+    # warning=function(c){flag <- FALSE},
+    error=function(x){}
+    )}
+    
+    ## Generate harmonise for Gut-Met
+    mr_dat = harmonise_data(exposure_dat = Gut_SNP,
+                            outcome_dat = Met)
+    save_path = paste(c(save_folder, paste(c('PRESSO_', file_gut, '-', met, '.csv'), collapse = '')), collapse = '')
+    
+    ## 多效性检验(MR_Egger判断)
+    if (dim(mr_dat)[1] >=4 ){
+      pleiotropy = mr_pleiotropy_test(mr_dat)
+      heterogeneity = mr_heterogeneity(mr_dat)
+      Egger_check = pleiotropy$pval
+      result_Egger = data.frame(
+          file_gut, met, 'MR_Egger',
+          pleiotropy$egger_intercept, pleiotropy$se, pleiotropy$pval)
+      colnames(result_Egger) = c('Exposure','Outcome','pleiotropy_test',
+                                    'coef', 'SE', 'p_val')
+    } else {write.csv(mr_dat, save_path); next}
+
+    result_Egger_total = rbind(result_Egger, result_Egger_total)
+    write.csv(result_Egger_total, paste0('02_Gut_Met/Summary_Results/', 'Gut-Met',
+                                         'MR-Egger检验(For_PRESSO).csv'))
+    
+    ## 根据MR_Egger结果开展MR_Presso检验
+    if (Egger_check >= 0.05){ write.csv(mr_dat, save_path) }  # save harmonised data
+    else{
+      if(dim(mr_dat)[1] == 0){ next }
+      if(dim(mr_dat)[1] >= 4){
+        ## initial MR-PRESSO Test
+        result <- mr_presso(
+          BetaOutcome ="beta.outcome", 
+          BetaExposure = "beta.exposure", 
+          SdOutcome ="se.outcome", 
+          SdExposure = "se.exposure", 
+          OUTLIERtest = TRUE,DISTORTIONtest = FALSE, NbDistribution = 500,
+          data = mr_dat,
+          SignifThreshold = 0.1)
+        print(result)
+        
+        # save all Presso results that MR-Egger<0.05
+        result_temp = data.frame(gut, met, result$`MR-PRESSO results`$`Global Test`$Pvalue)
+        colnames(result_temp) = c('exposure', 'outcome', 'PRESSO_p_val')
+        result_total = rbind(result_total, result_temp)
+        
+        save_path = paste0('02_Gut_Met/Summary_Results/', 'Total_PRESSO_results.csv')
+        write.csv(result_total, save_path)
+        
+        file_name_new = paste0(folder_path, 'PRESSO_', file_gut, '-', met, '.csv')
+        if(result$`MR-PRESSO results`$`Global Test`$Pvalue < 0.05){
+          new_data = PRESSO_check(mr_dat, result)
+          write.csv(new_data, file_name_new)
+        }
+        if(result$`MR-PRESSO results`$`Global Test`$Pvalue >= 0.05){
+          write.csv(mr_dat, file_name_new)
+        }
+        
+      } else {
+        file_name_new = paste0(folder_path, 'PRESSO_NULL_', file_gut, '-', met, '.csv')
+        write.csv(mr_dat, file_name_new)
+      }
+    }
+  }
+}    
+```
+
+
+## Gut-Met MR分析
+```{r}
+folder_path = '02_Gut_Met/SNP_selected/'
+file_names = list.files(folder_path)
+
+result_MR = data.frame()
+for (file_name in file_names){
+  mr_dat = read.csv(paste(c(folder_path, file_name), collapse = '')); mr_dat$X = NULL
+  result_temp = mr(mr_dat); if(dim(result_temp)[1] == 0){next}; result_temp$exposure = NULL
+  file_gut = gsub("PRESSO_final_", "", sub("-met-a.*", "", file_name))
+  result_temp = cbind(file_gut, result_temp); colnames(result_temp)[1] = 'Name'
+  
+  result_MR = rbind(result_MR, result_temp)
+  save_path = paste0('02_Gut_Met/Summary_Results/', 'Gut-Met-MR-Results.csv')
+  write.csv(result_MR, save_path)
+}
+```
+
+
+## Generate Gut-Met Results
+```{r}
+library(MRcML)
+folder_path = '02_Gut_Met/SNP_selected/'
+file_names = list.files(folder_path)
+
+## 循环开展MR-主分析
+result_total = data.frame()
+for (file_name in file_names){
+  file_path = paste(c(folder_path, file_name), collapse = '')
+  mr_dat = read.csv(file_path)
+  label = sub('.csv', '', sub('PRESSO_NULL_final_', '', sub("PRESSO_final_", '', file_name, )))
+  
+  result_temp = mr(mr_dat)
+  new_column = file_name
+  result_temp = cbind(new_column, result_temp); colnames(result_temp)[1] = 'Exposure'
+  
+  result_cML = mr_cML(mr_dat$beta.exposure,
+                       mr_dat$beta.outcome,
+                       mr_dat$se.exposure,
+                       mr_dat$se.outcome,
+                       n = 7824,
+                       random_start = 100,
+                       random_seed = 208)
+  result_cML_temp = data.frame(result_temp[1,1:5],
+                               'cML-MR',
+                               result_temp[1,7],
+                               result_cML$BIC_theta,
+                               result_cML$BIC_se,
+                               result_cML$BIC_p)
+  colnames(result_cML_temp) = c(colnames(result_temp)[1:5], 'method', 'nsnp','b','se','pval')
+  result_temp = rbind(result_temp, result_cML_temp)
+  
+  result_total = rbind(result_total, result_temp)
+  save_path = paste0('02_Gut_Met/Summary_Results/Gut-Met-MR-Results-all.csv')
+  write.csv(result_total, save_path)
+}
+
+## 循环开展MR-异质性&多效性检验
+result_total = data.frame()
+for (file_name in file_names){
+    file_path = paste0(folder_path, file_name)
+    mr_dat = read.csv(file_path); mr_dat$X=NULL
+    pleiotropy = mr_pleiotropy_test(mr_dat)
+    heterogeneity = mr_heterogeneity(mr_dat)
+    label = sub('.csv', '', sub('PRESSO_NULL_final_', '', sub("PRESSO_final_", '', file_name, )))
+    result_temp = data.frame(
+               label,
+               'pleiotropy_test_Egger',
+               pleiotropy$egger_intercept, pleiotropy$se, pleiotropy$pval,
+               'heterogeneity_IVW',
+               heterogeneity$method[2], heterogeneity$Q[2], heterogeneity$Q_pval[2])
+    colnames(result_temp) = c('Exposure','Test-1',
+                              'Intercept', 'SE', 'p_val',
+                              'Test-2', 'Method','Q2', 'Q2_pval')
+    result_temp$Nsnp = dim(mr_dat)[1]
+    result_total = rbind(result_temp, result_total)
+    write.csv(result_total, '02_Gut_Met/Summary_Results/Gut-Met-异质性&多效性检验.csv')
+}
+```
+
+
+# 03.Gut-Met-ASD
+Analysis process in the File "Module_Mediation_2 Module".
+In the part: "## 检验中介效应强度(Two-step MR + Boostrap)"
+(1) 基于菌群-认知关联
+(2) 计算逻辑
+  1. 获得两两之间的关联，随后采用Boostrap法校验
+  2. 获得Gut-ASD显著关联，特定Cog下的潜在Gut (在之前已完成)
+  3. 获得Gut-Met之间的显著关联，得到需要的Met (在之前已完成)
+  4. 剔除Gut-Met中存在的SNP，重新计算Met-Cog之间的效应 (在下面第一模块完成)
+  5. 两步法计算中介系数，利用Bootstrap法判断结果显著性
+(3) 开展假设检验分析
+
+## 筛选出候选的中介路径
+```{r}
+source('Function-Sup.R')
+
+#### 获取原始的Gut-Met数据, 保留显著的结果
+data_gut_Met = read.csv('02_Gut_Met/Summary_Results/Gut-Met-MR-Results-all.csv') 
+exp_sig_list.2 = data_gut_Met |>
+  select(-X) |>
+  filter(method == 'Inverse variance weighted') |>
+  filter(pval<0.05)
+
+data_gut_Met_sig = data_gut_Met[data_gut_Met$Exposure %in% exp_sig_list.2$Exposure,] |>
+  filter(!grepl("Simple mode", method))
+
+data_gut_Met_sig <- data_gut_Met_sig %>%
+  group_by(Exposure) %>%
+  mutate(same_sign = all(sign(b) == sign(b[1])))
+
+
+#### 剔除Gut-Met中存在的SNP，重新分析Met-ASD
+result.met.asd.NoSNP = data.frame(id.exposure = NA,
+                                  id.outcome = NA,
+                                  outcome = NA,
+                                  method = NA,
+                                  nsnp = NA,
+                                  b = NA,
+                                  se = NA,
+                                  pval = NA)
+folder_path = '02_Gut_Met/SNP_selected/'
+for (Gut_Met in unique(data_gut_Met_sig$Exposure)){
+  dt.gut_met = read.csv(paste0(folder_path, Gut_Met)); dt.gut_met$X = NULL
+  met = unique(dt.gut_met$id.outcome)
+  
+  ## 读取Met-Cog的HarmData
+  met_list = list.files('01_Met_Out/00_SNP_selected/PRESSO_FINAL_ASD/')
+  num = which(met == sub('.csv', '', gsub('.*_', '', met_list)))
+  Met_ASD_HarmData = read.csv(paste0('01_Met_Out/00_SNP_selected/PRESSO_FINAL_ASD/', met_list[num]))
+
+  ## 剔除Met-ASD中包含的Gut-Met已有的SNP
+  Met_ASD_HarmData_clean = Met_ASD_HarmData[!(Met_ASD_HarmData$SNP %in% dt.gut_met$SNP),]
+  write.csv(Met_ASD_HarmData_clean, paste0('02_Gut_Met/Met_ASD_NoSNP_Duplicated/', Gut_Met))
+    
+  ### 计算剔除重复SNP后的Met-ASD的MR模型
+  result_temp = mr( Met_ASD_HarmData_clean); if(dim(result_temp)[1] == 0){next}; result_temp$exposure = NULL
+  result_temp$id.exposure = met
+  result_temp$outcome = 'ASD'
+  ### 剔除IVW和MR-Egger反向的结果
+  if (sign(result_temp[result_temp$method == 'MR Egger', ]$pval) != 
+      sign(result_temp[result_temp$method == 'Inverse variance weighted', ]$pval)){
+          print('MR-Egger, IVW检验不通过')
+          print(Met); print(Cog)
+          next} 
+  
+  result.met.asd.NoSNP = rbind(result.met.asd.NoSNP, result_temp)
+  write_csv(result.met.asd.NoSNP[-1,], '02_Gut_Met/Summary_Results/Met-ASD-noSNP.csv')
+}
+```
+
+### 检验Gut-ASD, Gut-Met, Met-ASD方向
+```{r}
+## Gut-ASD
+# 在01.筛选显著的Gut-ASD and Met-ASD中已检验
+dat_Gut_ASD = read.csv('01_Gut_Out/03_results/Gut_ASD_NotCheckConfounding.csv')
+exp_sig_list.1 = dat_Gut_ASD |>
+  select(-X) |>
+  filter(method == 'Inverse variance weighted') |>
+  filter(pval<0.05)
+
+dat_Gut_ASD_sig = dat_Gut_ASD[dat_Gut_ASD$Exposure %in% exp_sig_list.1$Exposure,] |>
+  filter(!grepl("Simple mode", method))
+
+dat_Gut_ASD_sig <- dat_Gut_ASD_sig %>%
+  group_by(Exposure) %>%
+  mutate(same_sign = all(sign(b) == sign(b[1])))
+
+
+## Gut-Met
+data_gut_Met_sig = data_gut_Met_sig %>%
+  group_by(Exposure) %>%
+  mutate(same_sign = all(sign(b) == sign(b[1]))) %>%
+  filter(same_sign == TRUE) ## 检验均通过
+
+
+## Met-ASD(新版，无重复SNP)
+dat_Met_ASD = read.csv('02_Gut_Met/Summary_Results/Met-ASD-noSNP.csv')
+exp_sig_list = dat_Met_ASD |>
+  filter(method == 'Inverse variance weighted') |>
+  filter(pval<0.05)
+
+dat_Met_ASD_sig = dat_Met_ASD[dat_Met_ASD$id.exposure %in% exp_sig_list$id.exposure,] |>
+  filter(!grepl("Simple mode", method))
+
+dat_Met_ASD_sig = dat_Met_ASD_sig %>%
+  group_by(id.exposure) %>%
+  mutate(same_sign = all(sign(b) == sign(b[1]))) %>%
+  filter(same_sign == TRUE) ## 检验均通过
+```
+
+### 合并点估计中介效应
+```{r}
+## Only Keep IVW results
+Gut_Met.IVW = data_gut_Met_sig |>
+  mutate(Outcome = str_split(Exposure, pattern = "-", n = 2)[[1]][2]) |>
+  mutate(Outcome = sub('.csv', '', Outcome)) |>
+  filter(method == 'Inverse variance weighted'); Gut_Met.IVW$X = NULL
+
+Met_ASD.IVW = dat_Met_ASD_sig |> filter(method == 'Inverse variance weighted')
+  
+Gut_ASD.IVW = dat_Gut_ASD_sig |> filter(method == 'Inverse variance weighted') |>
+  mutate(Label = Exposure,
+         Exposure = sub('PRESSO_final_', '', Exposure),
+         Exposure = sub('PRESSO_NULL_final_', '', Exposure),
+         Exposure = sub('.csv', '', Exposure)) |>
+  select(-id.exposure, -id.outcome, -outcome, -exposure,-method, -same_sign) |>
+  rename(Gut_ASD_nsnp = nsnp,
+         Gut_ASD_beta = b,
+         Gut_ASD_se = se,
+         Gut_ASD_pval = pval)
+Gut_ASD.IVW$X = NULL
+
+## Merge Gut-Met & Met-ASD:
+tmp.1 = merge(Gut_Met.IVW, Met_ASD.IVW, by.x = 'id.outcome', by.y = 'id.exposure') |>
+  rename(Gut = Exposure,
+         Met = outcome.x,
+         Method = method.x,
+         Gut_Met_nsnp = nsnp.x,
+         Gut_Met_beta = b.x,
+         Gut_Met_se = se.x,
+         Gut_Met_pval = pval.x,
+         Met.id = id.outcome,
+         Met_ASD_nsnp = nsnp.y,
+         Met_ASD_beta = b.y,
+         Met_ASD_se = se.y,
+         Met_ASD_pval = pval.y) |>
+  mutate(Gut = sub('PRESSO_final_', '', Gut),
+         Outcome = 'ASD',
+         Gut = sub('.csv', '', Gut),
+         Gut = sub('-.*', '', Gut)) |>
+  select(-id.exposure, -exposure, -outcome.y, -id.outcome.y,
+         -same_sign.y, -same_sign.x, -method.y)
+
+## Additionally Merge Gut-ASD
+tmp.2 = merge(tmp.1, Gut_ASD.IVW, by.x = 'Gut', by.y = 'Exposure')
+
+## 正向中介
+Mediation_Point = tmp.2 |>
+  mutate(Indirect_Beta = Gut_Met_beta*Met_ASD_beta,
+         Mediation_prop = Indirect_Beta/Gut_ASD_beta * 100)
+Mediation_Point = unique(Mediation_Point)
+```
+
+
+## Bootstrap
+```{r}
+library(boot)
+library(simpleboot)
+library(coxed)
+
+for (i in 1:nrow(Mediation_Point)){
+  exp = Mediation_Point$Gut[i]
+  exp_file = sub('_NULL', '', Mediation_Point$Label[i])
+  met = Mediation_Point$Met.id[i]
+  out = 'ASD'
+  
+  ## 读取Gut-Met的HarmData
+  dat_Gut_Met = read.csv(paste0('02_Gut_Met/SNP_selected/', 
+                                sub('.csv', '', exp_file), 
+                                '-', met, '.csv'))
+  
+  ## 读取Met-ASD的New HarmData(没有重复的SNP)
+  dat_Met_ASD = read.csv(paste0('02_Gut_Met/Met_ASD_NoSNP_Duplicated/',
+                                sub('.csv', '', exp_file),
+                                '-', met, '.csv'))
+  
+  ## 开展bootstrap计算置信区间
+  mr_function <- function(data, indices) {
+    d <- data[indices,]
+    if (dim(d)[1]>=3){
+      jieguo <- mr(d,
+                 method_list = subset(mr_method_list())$obj[8])
+    } else {
+      jieguo <- mr(d,
+                 method_list = subset(mr_method_list())$obj[1])
+    }
+    
+    if (dim(jieguo)[1] == 0) {
+      temp_jieguo = mr(data, method_list = subset(mr_method_list())$obj[8])
+      return(temp_jieguo %>% pull(b)) 
+    }
+  return(jieguo %>% pull(b)) 
+  }
+  
+  set.seed(208)
+   output <- capture.output({
+      reps_mr_Gut_Met <- boot(data=dat_Gut_Met, statistic=mr_function, R=100)
+      reps_mr_Met_ASD <- boot(data=dat_Met_ASD, statistic=mr_function, R=100)
+  })
+  
+  indirect_effect = reps_mr_Gut_Met$t * reps_mr_Met_ASD$t
+  Mediation_Point$Indirect_Beta[i] + c(-1,1)*1.96*sd(indirect_effect)
+  
+  Mediation_Point[i,'Indirect_SE'] = sd(indirect_effect)
+  Mediation_Point[i,'Lower_Z'] = Mediation_Point$Indirect_Beta[i] - 1.96*Mediation_Point[i,'Indirect_SE']
+  Mediation_Point[i,'Upper_Z'] = Mediation_Point$Indirect_Beta[i] + 1.96*Mediation_Point[i,'Indirect_SE']
+  Mediation_Point[i,'Lower_quantile'] = quantile(indirect_effect, 0.025)
+  Mediation_Point[i,'Upper_quantile'] = quantile(indirect_effect, 0.975)
+  Mediation_Point[i,'Lower_BCA'] = bca(indirect_effect, conf.level = 0.95)[1]
+  Mediation_Point[i,'Upper_BCA'] = bca(indirect_effect, conf.level = 0.95)[2]
+}
+
+
+## 手动定义BootStrap
+set.seed(208)
+for (i in 1:nrow(Mediation_Point)){
+  exp = Mediation_Point$Gut[i]
+  exp_file = sub('_NULL', '', Mediation_Point$Label[i])
+  met = Mediation_Point$Met.id[i]
+  out = 'ASD'
+  
+  ## 读取Gut-Met的HarmData
+  dat_Gut_Met = read.csv(paste0('02_Gut_Met/SNP_selected/', 
+                                sub('.csv', '', exp_file), 
+                                '-', met, '.csv')); dat_Gut_Met$X = NULL
+  
+  ## 读取Met-ASD的New HarmData(没有重复的SNP)
+  dat_Met_ASD = read.csv(paste0('02_Gut_Met/Met_ASD_NoSNP_Duplicated/',
+                                sub('.csv', '', exp_file),
+                                '-', met, '.csv'))
+  
+  ## 开展bootstrap计算置信区间
+  indirect_effect = c()
+  for (j in 1:100){
+    output <- capture.output({
+      num1 = sample(1:dim(dat_Gut_Met)[1], dim(dat_Gut_Met)[1], replace = TRUE)
+      dat.Gut_Met.sample = dat_Gut_Met[num1,]
+      Gut_Met.mr = mr(dat.Gut_Met.sample, method_list = subset(mr_method_list())$obj[8])
+      
+      num2 = sample(1:dim(dat_Met_ASD)[1], dim(dat_Met_ASD)[1], replace = TRUE)
+      dat.Met_ASD.sample = dat_Met_ASD[num2,]
+      Met_ASD.mr = mr(dat.Met_ASD.sample, method_list = subset(mr_method_list())$obj[8])
+  })
+    indirect_effect = c(indirect_effect, Gut_Met.mr$b*Met_ASD.mr$b)
+  }
+  
+  Mediation_Point[i,'Indirect_SE_self'] = sd(indirect_effect)
+  Mediation_Point[i,'Lower_Z_self'] = Mediation_Point$Indirect_Beta[i] - 1.96*Mediation_Point[i,'Indirect_SE_self']
+  Mediation_Point[i,'Upper_Z_self'] = Mediation_Point$Indirect_Beta[i] + 1.96*Mediation_Point[i,'Indirect_SE_self']
+  Mediation_Point[i,'Lower_quantile_self'] = quantile(indirect_effect, 0.025)
+  Mediation_Point[i,'Upper_quantile_self'] = quantile(indirect_effect, 0.975)
+  Mediation_Point[i,'Lower_BCA_self'] = bca(indirect_effect, conf.level = 0.95)[1]
+  Mediation_Point[i,'Upper_BCA_self'] = bca(indirect_effect, conf.level = 0.95)[2]
+  
+}
+
+write_csv(Mediation_Point, '02_Gut_Met/Summary_Results/Mediation_results.csv')
+```
+
+### Clean Mediation Results
+```{r}
+Mediation.result = read.csv('02_Gut_Met/Summary_Results/Mediation_results.csv')
+Mediation.result = Mediation.result[-11,]
+tmp.result = Mediation.result |>
+  select(-Method, -Outcome, -Label,
+         -Lower_Z, -Upper_Z,
+         -Lower_BCA,-Upper_BCA, -Indirect_SE_self, 
+         -Lower_Z_self, -Upper_Z_self, -Lower_quantile_self,
+         -Upper_quantile_self, -Lower_BCA_self, -Upper_BCA_self) |>
+  mutate(Z = Indirect_Beta/Indirect_SE,
+         med.p = 1-pnorm(abs(Z))) |>
+  filter(med.p < 0.05) |>
+  mutate(med.beta.conf = sprintf("[%.3f, %.3f]", Lower_quantile, Upper_quantile),
+         med.OR.conf = sprintf("%.3f [%.3f, %.3f]", 
+                               exp(Indirect_Beta),
+                               exp(Lower_quantile), 
+                               exp(Upper_quantile)),
+         med.prop.conf = sprintf("%.1f [%.1f, %.1f]",
+                                 Mediation_prop,
+                                 Lower_quantile/Gut_ASD_beta*100, 
+                                 Upper_quantile/Gut_ASD_beta*100)) |>
+  select(-Mediation_prop, -Indirect_SE, -med.beta.conf,
+         -Lower_quantile, -Upper_quantile,
+         -Indirect_Beta,
+         -Z) |>
+  mutate(Gut_Met.OR = exp(Gut_Met_beta),
+         Gut_Met.OR.conf = sprintf("%.3f [%.3f, %.3f]", 
+                               Gut_Met.OR,
+                               exp(Gut_Met_beta - 1.96*Gut_Met_se), 
+                               exp(Gut_Met_beta + 1.96*Gut_Met_se))) |>
+  select(-Gut_Met_beta, -Gut_Met_se, -Gut_Met.OR) |>
+  mutate(Met_ASD.OR = exp(Met_ASD_beta),
+         Met_ASD.OR.conf = sprintf("%.3f [%.3f, %.3f]", 
+                               Met_ASD.OR,
+                               exp(Met_ASD_beta - 1.96*Met_ASD_se), 
+                               exp(Met_ASD_beta + 1.96*Met_ASD_se))) |>
+  select(-Met_ASD_beta, -Met_ASD_se, -Met_ASD.OR) |>
+  mutate(Gut_ASD.OR = exp(Gut_ASD_beta),
+         Gut_ASD.OR.conf = sprintf("%.3f [%.3f, %.3f]", 
+                               Gut_ASD.OR,
+                               exp(Gut_ASD_beta - 1.96*Gut_ASD_se), 
+                               exp(Gut_ASD_beta + 1.96*Gut_ASD_se))) |>
+  select(-Gut_ASD_beta, -Gut_ASD_se, -Gut_ASD.OR)
+
+write_csv(tmp.result, '02_Gut_Met/Summary_Results/Modified.Med.results_0702.csv')
+```
+

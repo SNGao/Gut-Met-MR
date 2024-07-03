@@ -1,0 +1,1678 @@
+---
+title: "Module-Sup"
+---
+
+
+```{r}
+library(TwoSampleMR)
+library(data.table)
+library(MRPRESSO)
+library(stringr)
+library(vroom)
+library(readr)
+library(ieugwasr)
+library(MRcML)
+library(readxl)
+library(tidyverse)
+library(here)
+library(xlsx)
+library(forestploter)
+
+source('Function-DATA_process.R')
+source('Function-DATA_read.R')
+source('Function-MR_Analyze.R')
+source('Function-Sup.R')
+source('Function-Visulization.R')
+
+library(writexl)
+```
+
+# 01.Sensitivity Analysis
+The inconsistency between MR Egger and IVW is eliminated
+## Gut-ASD
+```{r}
+folder_path = '01_Gut_Out/03_results/'
+file_name = 'Gut_ASD_NotCheckConfounding.csv'
+
+library(readxl)
+library(tidyverse)
+file_path = paste(c(folder_path, file_name), collapse = '')
+data = read.csv(file_path)
+
+## Check the difference between MR-Egger and IVW
+### Extract significant results from IVW or Wald
+data_label = data %>% 
+  filter(method %in% c('Wald ratio','Inverse variance weighted')) %>%
+  filter(pval<0.05,)
+data_p = data[data$Exposure %in% data_label$Exposure,]
+
+### Eliminate the inverse results of IVW and MR-Egger
+data_p_Wald = data_p[data_p$method %in% c('Wald ratio'),]; 
+data_p_IVW_MR_Egger = data_p[data_p$method %in% c('Inverse variance weighted',
+                                                  'MR Egger',
+                                                  'cML-MR'),]
+
+list = c()
+for (exp in unique(data_p_IVW_MR_Egger$Exposure)){
+  temp = data_p_IVW_MR_Egger[data_p_IVW_MR_Egger$Exposure == exp,]$b
+  if (all(temp > 0) || all(temp < 0)) {
+    list = append(list, exp)
+  } else {}
+}
+
+data_p_final = rbind(data_p_Wald, data[data$Exposure %in% list,])
+write_xlsx(data_p_final, path = paste(c('03_Processed_Results/', 'EGG-CHECK-', 
+                                        sub('.csv', '.xlsx', file_name)), collapse = ''))
+```
+
+## Gut-ASD (Control Confounding)
+```{r}
+folder_path = '01_Gut_Out/03_results/'
+file_name = 'Gut_ASD_noConfounding_191.csv'
+
+library(readxl)
+library(tidyverse)
+file_path = paste(c(folder_path, file_name), collapse = '')
+data = read.csv(file_path)
+
+## Check the difference between MR-Egger and IVW
+### Extract significant results from IVW or Wald
+data_label = data %>% 
+  filter(method %in% c('Wald ratio','Inverse variance weighted')) %>%
+  filter(pval<0.05,)
+data_p = data[data$Exposure %in% data_label$Exposure,]
+
+### Eliminate the inverse results of IVW and MR-Egger
+data_p_Wald = data_p[data_p$method %in% c('Wald ratio'),]; 
+data_p_IVW_MR_Egger = data_p[data_p$method %in% c('Inverse variance weighted',
+                                                  'MR Egger',
+                                                  'cML-MR'),]
+
+list = c()
+for (exp in unique(data_p_IVW_MR_Egger$Exposure)){
+  temp = data_p_IVW_MR_Egger[data_p_IVW_MR_Egger$Exposure == exp,]$b
+  if (all(temp > 0) || all(temp < 0)) {
+    list = append(list, exp)
+  } else {}
+}
+
+data_p_final = rbind(data_p_Wald, data[data$Exposure %in% list,])
+write_xlsx(data_p_final, path = paste(c('03_Processed_Results/', 'EGG-CHECK-', 
+                                        sub('.csv', '.xlsx', file_name)), collapse = ''))
+```
+
+
+## Met-ASD
+```{r}
+file_path = '01_Met_Out/03_results/Met_ASD_NotCheckConfounding.csv'
+file_name = 'Met_ASD.csv'
+data = read.csv(file_path)
+
+## Check the difference between MR-Egger and IVW
+### Extract significant results from IVW or Wald
+data_label = data %>%
+  filter(method %in% c('Wald ratio', 'Inverse variance weighted')) %>%
+  filter(pval < 0.05, )
+data_p = data[data$Exposure %in% data_label$Exposure, ]
+
+### Eliminate the inverse results of IVW and MR-Egger
+data_p_Wald = data_p[data_p$method %in% c('Wald ratio'), ]
+
+data_p_IVW_MR_Egger = data_p[data_p$method %in% c('Inverse variance weighted',
+                                                  'MR Egger'), ]
+
+list = c()
+for (exp in unique(data_p_IVW_MR_Egger$Exposure)) {
+  temp = data_p_IVW_MR_Egger[data_p_IVW_MR_Egger$Exposure == exp, ]$b
+  if (all(temp > 0) || all(temp < 0)) {
+    list = append(list, exp)
+  } else {
+  }
+}
+
+data_p_final = rbind(data_p_Wald, data[data$Exposure %in% list, ])
+write_xlsx(data_p_final, path = paste(c('03_Processed_Results/', 'EGG-CHECK-',
+                                        sub('.csv', '.xlsx', file_name)), collapse = ''))
+```
+
+
+
+# 02.Sensitivity Analysis
+The cause and effect of the inconsistency between MR Results and IVW results were eliminated
+## Gut-ASD
+```{r}
+dat = read_xlsx('03_Processed_Results/EGG-CHECK-Gut_ASD_NotCheckConfounding.xlsx'); dat$X = NULL
+dat = dat[!dat$method == 'Simple mode', ]
+
+dat$exposure = NULL
+dat$outcome = NULL
+dat <- dat[, c(1, ncol(dat), 2:(ncol(dat) - 1))]
+dat$id.exposure = NULL
+dat$id.outcome = NULL
+
+## Adjust the order in which methods are presented for each association
+method_order <-
+  c("MR Egger",
+    "cML-MR",
+    "Inverse variance weighted",
+    "Weighted median",
+    "Weighted mode")
+dat$method <- factor(dat$method, levels = method_order)
+dat <- dat %>%
+  arrange(Exposure, method)
+
+## Check that the output of different methods goes in the same direction
+dat_exam_list <- dat %>%
+  group_by(Exposure) %>%
+  summarize(same_sign = all(sign(b) == sign(b[1])))
+
+dat_exam_list = dat_exam_list[dat_exam_list$same_sign == TRUE,]$Exposure
+dat_exam = dat[dat$Exposure %in% dat_exam_list,]
+dat_exam$Outcome = 'ASD'
+dat_exam$Exposure = sub('.csv', '', sub('PRESSO_NULL_final_', '', sub('PRESSO_final_', '', dat_exam$Exposure)))
+
+writexl::write_xlsx(dat_exam, paste0('03_Processed_Results/', 'FIANL-Gut_ASD_NotCheckConfounding.xlsx'))
+```
+
+## Gut-ASD (Control Confonding)
+```{r}
+dat = read_xlsx('03_Processed_Results/EGG-CHECK-Gut_ASD_noConfounding_191.xlsx'); dat$X = NULL
+dat = dat[!dat$method == 'Simple mode', ]
+
+dat$exposure = NULL
+dat$outcome = NULL
+dat <- dat[, c(1, ncol(dat), 2:(ncol(dat) - 1))]
+dat$id.exposure = NULL
+dat$id.outcome = NULL
+
+## Adjust the order in which methods are presented for each association
+method_order <-
+  c("MR Egger",
+    "cML-MR",
+    "Inverse variance weighted",
+    "Weighted median",
+    "Weighted mode")
+dat$method <- factor(dat$method, levels = method_order)
+dat <- dat %>%
+  arrange(Exposure, method)
+
+## Check that the output of different methods goes in the same direction
+dat_exam_list <- dat %>%
+  group_by(Exposure) %>%
+  summarize(same_sign = all(sign(b) == sign(b[1])))
+
+dat_exam_list = dat_exam_list[dat_exam_list$same_sign == TRUE,]$Exposure
+dat_exam = dat[dat$Exposure %in% dat_exam_list,]
+dat_exam$Outcome = 'ASD'
+dat_exam$Exposure = sub('.csv', '', sub('PRESSO_NULL_final_', '', sub('PRESSO_final_', '', dat_exam$Exposure)))
+
+writexl::write_xlsx(dat_exam, paste0('03_Processed_Results/', 'FIANL-Gut_ASD_noConfounding_191.xlsx'))
+```
+
+## Met-ASD
+```{r}
+dat = read_xlsx('03_Processed_Results/EGG-CHECK-Met_ASD.xlsx'); dat$X = NULL
+dat = dat[!dat$method == 'Simple mode', ]
+
+dat$exposure = NULL
+dat$outcome = NULL
+dat <- dat[, c(1, ncol(dat), 2:(ncol(dat) - 1))]
+dat$id.exposure = NULL
+dat$id.outcome = NULL
+
+## Adjust the order in which methods are presented for each association
+method_order <-
+  c("MR Egger",
+    "cML-MR",
+    "Inverse variance weighted",
+    "Weighted median",
+    "Weighted mode")
+dat$method <- factor(dat$method, levels = method_order)
+dat <- dat %>%
+  arrange(Exposure, method)
+
+## Check that the output of different methods goes in the same direction
+dat_exam_list <- dat %>%
+  group_by(Exposure) %>%
+  summarize(same_sign = all(sign(b) == sign(b[1])))
+
+dat_exam_list = dat_exam_list[dat_exam_list$same_sign == TRUE,]$Exposure
+dat_exam = dat[dat$Exposure %in% dat_exam_list,]
+dat_exam$Outcome = 'ASD'
+dat_exam$Exposure = sub('.csv', '', sub('PRESSO_NULL_final_CLUMP', '', 
+                                        sub('PRESSO_final_CLUMP_', '', dat_exam$Exposure)))
+
+## Match Defined Exposure with Metabolites Label
+met_list = read.csv('01_Met_Out/met-a.csv')
+mapping_vector <- setNames(met_list$Trait, met_list$GWASID)
+dat_exam$Met = mapping_vector[dat_exam$Exposure]
+
+writexl::write_xlsx(dat_exam, paste0('03_Processed_Results/', 'FIANL-Met_ASD.xlsx'))
+```
+
+
+# 03.ForestPlots
+## Generate Drawing Plots
+### Gut-ASD 
+#### Not control Confounding
+```{r}
+# Check if the directory exists, if not, create it
+dir_path <- "03_Processed_Results/ForestPlots"
+if (!dir.exists(dir_path)) {
+  dir.create(dir_path, recursive = TRUE)
+}
+
+dat = read_xlsx('03_Processed_Results/FIANL-Gut_ASD_NotCheckConfounding.xlsx'); dat$...1 = NULL
+dat = dat |> 
+  filter(method %in% c('Inverse variance weighted',
+                       'cML-MR')) # Select the method we want to use
+
+dat$Exposure = replace_..(dat$Exposure)
+dat$Outcome = replace__(dat$Outcome)
+
+dat_output = dat |>
+  mutate(
+    lower_CI = beta_OR_transform(dat$b, dat$se)[, 2],
+    upper_CI = beta_OR_transform(dat$b, dat$se)[, 3],
+    OR = beta_OR_transform(dat$b, dat$se)[, 1]
+  ) |>
+  select(-Outcome,-b,-se, -method)
+
+dat_output = dat_output[, c(1, ncol(dat_output), 4:5, 3, 2)]; dat_output$Method = dat$method
+
+writexl::write_xlsx(dat_output, '03_Processed_Results/ForestPlots/Gut-ASD-Prepared.xlsx')
+```
+
+#### Control Confounding
+```{r}
+dat = read_xlsx('03_Processed_Results/FIANL-Gut_ASD_noConfounding_191.xlsx'); dat$...1 = NULL
+dat = dat |> 
+  filter(method %in% c('Inverse variance weighted',
+                       'cML-MR')) # Select the method we want to use
+
+dat$Exposure = replace_..(dat$Exposure)
+dat$Outcome = replace__(dat$Outcome)
+
+dat_output = dat |>
+  mutate(
+    lower_CI = beta_OR_transform(dat$b, dat$se)[, 2],
+    upper_CI = beta_OR_transform(dat$b, dat$se)[, 3],
+    OR = beta_OR_transform(dat$b, dat$se)[, 1]
+  ) |>
+  select(-Outcome,-b,-se, -method)
+
+dat_output = dat_output[, c(1, ncol(dat_output), 4:5, 3, 2)]; dat_output$Method = dat$method
+
+writexl::write_xlsx(dat_output, '03_Processed_Results/ForestPlots/Gut-ASD-Prepared-NoConfounding.xlsx')
+```
+
+
+### Met-ASD
+```{r}
+dat = read_xlsx('03_Processed_Results/FIANL-Met_ASD.xlsx'); dat$...1 = NULL
+
+## Exclude Metabolites with Unknown Name
+pattern1 <- "[A-Z]-\\d{5}"
+pattern2 <- "[A-Z]-\\d{5}-"
+dat = rbind(dat[!grepl(pattern1, dat$Met),],
+            dat[grepl(pattern2, dat$Met),])
+
+dat = dat |> 
+  filter(method %in% c('Inverse variance weighted',
+                       'cML-MR')) |># Select the method we want to use
+  mutate(Exposure = Met) |>
+  dplyr::select(-Met)
+
+dat$Exposure = replace_..(dat$Exposure)
+dat$Outcome = replace__(dat$Outcome)
+
+dat_output = dat |>
+  mutate(
+    lower_CI = beta_OR_transform(dat$b, dat$se)[, 2],
+    upper_CI = beta_OR_transform(dat$b, dat$se)[, 3],
+    OR = beta_OR_transform(dat$b, dat$se)[, 1]
+  ) |>
+  dplyr::select(-Outcome,-b,-se, -method)
+
+dat_output = dat_output[, c(1, ncol(dat_output), 4:5, 3, 2)]; dat_output$Method = dat$method
+
+writexl::write_xlsx(dat_output, '03_Processed_Results/ForestPlots/Met-ASD-Prepared.xlsx')
+```
+
+
+## Drawing
+```{r}
+library(here)
+library(forestploter)
+library(grid)
+# Define theme
+tm <- forest_theme(base_size = 10,
+                   refline_col = "red",
+                   footnote_col = "#636363",
+                   footnote_fontface = "italic",
+                   ci_Theight = 0.2)
+```
+
+### Gut-ASD
+#### Not control confounding
+```{r}
+dat = read_xlsx('03_Processed_Results/ForestPlots/Gut-ASD-Prepared.xlsx')
+dat$pval <- ifelse(is.na(dat$pval), "", dat$pval)
+dat$nsnp <- ifelse(is.na(dat$nsnp), "", dat$nsnp)
+dat$Method <- ifelse(dat$Method == 'Inverse variance weighted', "IVW", dat$Method)
+
+## Sort visulization order
+ivw_significance <- dat %>%
+  filter(Method == "IVW") %>%
+  select(Exposure, IVW_significance = pval)
+
+dat <- dat %>%
+  left_join(ivw_significance, by = 'Exposure')
+
+dat <- dat %>%
+  mutate(
+    method_order = case_when(
+      Method == "IVW" ~ 1,
+      Method == "cML-MR" ~ 2,
+      TRUE ~ 3
+    )
+  ) %>%
+  arrange(
+    IVW_significance,
+    Exposure, 
+    method_order
+  ) %>%
+  select(-method_order, -IVW_significance)
+
+
+dat$`Odds ratio (95%CI)` <- paste(rep(" ", 20), collapse = " ")
+dat$pval = format(as.numeric(dat$pval),
+                      scientific = TRUE,
+                      digits = 3)
+dat$se <- (log(dat$upper_CI) - log(dat$lower_CI)) / 1.96
+colnames(dat)[c(5, 6)] = c('SNP', 'P value')
+
+## Exclude the second row for each variable
+dat$Exposure[c(seq(2, length(dat$Exposure), 2))] = ''
+dat$Exposure = sub('\\.id.*', '', dat$Exposure)
+
+
+plot1 <- forest(
+  dat[, c(1, 7, 8, 5, 6)],
+  est = dat$OR,
+  lower = dat$lower_CI,
+  upper = dat$upper_CI,
+  sizes = 0.4,
+  ci_column = 3,
+  ref_line = 1,
+  xlim = c(0.25, 4),
+  ticks_at = c(0.25, 1, 4),
+  x_trans = c("log"),
+  #arrow_lab = c("Placebo Better", "Treatment Better"),
+  #footnote = "This is the demo data. Please feel free to change\nanything you want.",
+  theme = tm) |>
+  # edit_plot(col = 1,
+  #           gp = gpar(fontface = "bold")) |>
+  add_border(part = "header", where = c("bottom")) |>
+  add_border(part = "header", where = c("top"))
+
+pdf('03_Processed_Results/ForestPlots/Gut-ASD.pdf')
+plot1
+dev.off()
+```
+
+#### Control confounding
+```{r}
+dat = read_xlsx('03_Processed_Results/ForestPlots/Gut-ASD-Prepared-NoConfounding.xlsx')
+dat$pval <- ifelse(is.na(dat$pval), "", dat$pval)
+dat$nsnp <- ifelse(is.na(dat$nsnp), "", dat$nsnp)
+dat$Method <- ifelse(dat$Method == 'Inverse variance weighted', "IVW", dat$Method)
+
+## Sort visulization order
+ivw_significance <- dat %>%
+  filter(Method == "IVW") %>%
+  select(Exposure, IVW_significance = pval)
+
+dat <- dat %>%
+  left_join(ivw_significance, by = 'Exposure')
+
+dat <- dat %>%
+  mutate(
+    method_order = case_when(
+      Method == "IVW" ~ 1,
+      Method == "cML-MR" ~ 2,
+      TRUE ~ 3
+    )
+  ) %>%
+  arrange(
+    IVW_significance,
+    Exposure, 
+    method_order
+  ) %>%
+  select(-method_order, -IVW_significance)
+
+
+dat$`Odds ratio (95%CI)` <- paste(rep(" ", 20), collapse = " ")
+dat$pval = format(as.numeric(dat$pval),
+                      scientific = TRUE,
+                      digits = 3)
+dat$se <- (log(dat$upper_CI) - log(dat$lower_CI)) / 1.96
+colnames(dat)[c(5, 6)] = c('SNP', 'P value')
+
+## Exclude the second row for each variable
+dat$Exposure[c(seq(2, length(dat$Exposure), 2))] = ''
+dat$Exposure = sub('\\.id.*', '', dat$Exposure)
+dat$Exposure = sub('\\.', '', dat$Exposure)
+
+plot1 <- forest(
+  dat[, c(1, 7, 8, 5, 6)],
+  est = dat$OR,
+  lower = dat$lower_CI,
+  upper = dat$upper_CI,
+  sizes = 0.4,
+  ci_column = 3,
+  ref_line = 1,
+  xlim = c(0.25, 4),
+  ticks_at = c(0.25, 1, 4),
+  x_trans = c("log"),
+  #arrow_lab = c("Placebo Better", "Treatment Better"),
+  #footnote = "This is the demo data. Please feel free to change\nanything you want.",
+  theme = tm) |>
+  # edit_plot(col = 1,
+  #           gp = gpar(fontface = "bold")) |>
+  add_border(part = "header", where = c("bottom")) |>
+  add_border(part = "header", where = c("top"))
+
+pdf('03_Processed_Results/ForestPlots/Gut-ASD-NoConfounding.pdf')
+plot1
+dev.off()
+```
+
+
+### Met-ASD
+```{r}
+dat = read_xlsx('03_Processed_Results/ForestPlots/Met-ASD-Prepared-CleanName.xlsx')
+dat$pval <- ifelse(is.na(dat$pval), "", dat$pval)
+dat$nsnp <- ifelse(is.na(dat$nsnp), "", dat$nsnp)
+dat$Method <- ifelse(dat$Method == 'Inverse variance weighted', "IVW", dat$Method)
+
+## Sort visulization order
+ivw_significance <- dat %>%
+  filter(Method == "IVW") %>%
+  dplyr::select(Exposure, IVW_significance = pval)
+
+dat <- dat %>%
+  left_join(ivw_significance, by = 'Exposure')
+
+dat <- dat %>%
+  mutate(
+    method_order = case_when(
+      Method == "IVW" ~ 1,
+      Method == "Weighted median" ~ 2,
+      TRUE ~ 3
+    )
+  ) %>%
+  arrange(
+    IVW_significance,
+    Exposure, 
+    method_order
+  ) %>%
+  dplyr::select(-method_order, -IVW_significance)
+
+
+dat$`Odds ratio (95%CI)` <- paste(rep(" ", 20), collapse = " ")
+dat$pval = format(as.numeric(dat$pval),
+                      scientific = TRUE,
+                      digits = 3)
+dat$se <- (log(dat$upper_CI) - log(dat$lower_CI)) / 1.96
+colnames(dat)[c(5, 6)] = c('SNP', 'P value')
+
+## Exclude the second row for each variable
+dat$Exposure[c(seq(2, length(dat$Exposure), 2))] = ''
+dat$Exposure = sub('\\.id.*', '', dat$Exposure)
+
+
+plot1 <- forest(
+  dat[, c(1, 7, 8, 5, 6)],
+  est = dat$OR,
+  lower = dat$lower_CI,
+  upper = dat$upper_CI,
+  sizes = 0.4,
+  ci_column = 3,
+  ref_line = 1,
+  xlim = c(0.2, 5),
+  ticks_at = c(0.2, 1, 5),
+  x_trans = c("log"),
+  #arrow_lab = c("Placebo Better", "Treatment Better"),
+  #footnote = "This is the demo data. Please feel free to change\nanything you want.",
+  theme = tm) |>
+  # edit_plot(col = 1,
+  #           gp = gpar(fontface = "bold")) |>
+  add_border(part = "header", where = c("bottom")) |>
+  add_border(part = "header", where = c("top"))
+
+pdf('03_Processed_Results/ForestPlots/Met-ASD.pdf', height = 10)
+plot1
+dev.off()
+```
+
+# 04.Enriched Gut and Met results
+##04.1 Phylogenetic tree
+## Whole name of Gut
+```{r}
+gut_name = list.files('01_Gut_Out/00_SNP_selected/PRESSO_FINAL_ASD/')
+gut_name = sub('.csv', '', sub('PRESSO_NULL_final_', '', 
+                               sub('PRESSO_final_','', gut_name)))
+gut_name.noID = sub("\\.id.*", "", gut_name)
+gut_name.noID = gut_name.noID[!grepl('unknowngenus', gut_name.noID)] # exclude unknown genus
+gut_genus_name = gut_name.noID[grepl('genus', gut_name.noID)] # only consider genus
+gut_genus_name = replace_..(replace_..(gut_genus_name)) # exclude ..
+gut_genus_name.order = gut_genus_name[order(gut_genus_name)] # Num = 119
+
+# Num = c(26, 27, 28, 38, 39, 40, 41:48, 50:51, 55, 64:66, 68:119)
+```
+
+## Select SNP for required Gut
+These Gut were missing in the prior Gut finding process
+```{r}
+library(Biostrings)
+sintax_sequences <- readDNAStringSet("/Users/gsn/Downloads/SINTAX.fa MiDAS 5.3.fa")
+full.names = names(sintax_sequences)
+
+gut_genus_name.order[Num]
+sup.frame = data.frame(Num = Num,
+                       Genus = gut_genus_name.order[Num],
+                       FASTA.id = NA)
+# full.names[grepl('g:Victivallis', full.names)]
+# sup.frame$Genus[73]
+sup.frame$FASTA.id = c('FLASV8585.1440', 'FLASV31834.1352','FLASV53196.1349', 'FLASV2316.1439', 'FLASV1946.1438',
+                       'FLASV33073.1354', 'FLASV45407.1354', 'FLASV23259.1351', 'FLASV8088.1443',
+                       NA, 'FLASV5405.1455', NA, 'FLASV28609.1355', 'FLASV3681.1455', 'FLASV11346.1349', 'FLASV58556.1348',
+                       NA, 'FLASV67800.1344', 'FLASV115288.1352', 'FLASV30707.1336', 'FLASV62834.1354', 'FLASV5009.1471',
+                       'FLASV56962.1346', NA, 'FLASV3877.1486', 'FLASV594.1479', 'FLASV66685.1349', 'FLASV9529.1483',
+                       'FLASV49504.1354', 'FLASV93104.1334', 'FLASV8133.1452', NA, NA, 'FLASV13790.1361', 'Wrong',
+                       'FLASV53981.1361', 'FLASV112297.1355', 'FLASV118891.1388', 'FLASV30037.1379', 'FLASV18889.1360',
+                       'FLASV12335.1360', 'FLASV58.1446', 'FLASV34.1425', 'FLASV5583.1455', 'FLASV683.1447', 'FLASV2146.1577',
+                       'FLASV7941.1470', 'FLASV82903.1343', NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, 'FLASV7948.1456', 'FLASV33522.1362',
+                       'FLASV3008.1453', 'FLASV63626.1352', 'FLASV112741.1331', NA, 'FLASV146.1471', 'FLASV348.1435', 'FLASV232.1456',
+                       'FLASV78.1425', 'FLASV3248.1475', 'FLASV48221.1350', 'FLASV5845.1486', 'FLASV63558.1327')
+
+sup.frame = sup.frame[!sup.frame$FASTA.id == 'Wrong',]
+sup.frame.needExtra = sup.frame[is.na(sup.frame$FASTA.id),] # these gut need to be further checked in the Silva website
+sup.frame.available = sup.frame[!is.na(sup.frame$FASTA.id),] # these gut are available from SINTAX.fa MiDAS 5.3.fa
+
+## For finding fasta file based on the name we found before [Loop]
+for (i in 1:nrow(sup.frame.available)) {
+  genus <- sup.frame.available$Genus[i]
+  fasta_id <- sup.frame.available$FASTA.id[i]
+
+  select_FASTA(sintax_sequences,
+               seq.name = fasta_id,
+               new.name = genus,
+               rename = TRUE)
+}
+```
+
+
+### Combine selected FASTA together
+```{r}
+combine_fasta_files <- function(file_list, output_file) {
+  # 读取所有的FASTA文件并合并
+  fasta_sequences <- lapply(file_list, readDNAStringSet)
+  combined_sequences <- do.call(c, fasta_sequences)
+  
+  # 写入到一个新的FASTA文件
+  writeXStringSet(combined_sequences, output_file)
+}
+
+# FASTA文件列表
+file_list <- list.files('04_Formal_Results/Phylogenetic tree/selected_FASTA/')
+file_list = file_list[!grepl('FLASV', file_list)]
+file_list = paste0('04_Formal_Results/Phylogenetic tree/selected_FASTA/', file_list)
+file_list = c(file_list, 
+              '04_Formal_Results/Phylogenetic tree/tax_sequence_1_rename.fasta',
+              '04_Formal_Results/Phylogenetic tree/tax_sequence_2_rename.fasta')
+
+output_file <- "04_Formal_Results/Phylogenetic tree/combined_sequences.fasta"
+combine_fasta_files(file_list, output_file)
+
+## Check combined FASTA files
+cmd.fasta = readDNAStringSet('04_Formal_Results/Phylogenetic tree/combined_sequences.fasta')
+cmd.fasta.name = sub("^[^-]*-", "", names(cmd.fasta))
+duplicated(sub("^[^-]*-", "", names(cmd.fasta))) # All FALSE
+
+cmd.fasta.name %in% gut_genus_name
+gut_genus_name[!gut_genus_name %in% cmd.fasta.name]
+  # genus Clostridiuminnocuumgroup, FLASV110588.1359
+  # genus ErysipelotrichaceaeUCG003, FLASV14500.1346
+  # genus Escherichia Shigella, FLASV9539.1554
+
+select_FASTA(sintax_sequences, seq.name = 'FLASV110588.1359',
+             new.name = 'genus Clostridiuminnocuumgroup', rename = TRUE)
+select_FASTA(sintax_sequences, seq.name = 'FLASV14500.1346',
+             new.name = 'genus ErysipelotrichaceaeUCG003', rename = TRUE)
+select_FASTA(sintax_sequences, seq.name = 'FLASV9539.1554',
+             new.name = 'genus Escherichia Shigella', rename = TRUE)
+
+
+## Re-Check FASTA
+file_list <- list.files('04_Formal_Results/Phylogenetic tree/selected_FASTA/')
+file_list = file_list[!grepl('FLASV', file_list)]
+file_list = paste0('04_Formal_Results/Phylogenetic tree/selected_FASTA/', file_list)
+file_list = c(file_list, 
+              '04_Formal_Results/Phylogenetic tree/tax_sequence_1_rename.fasta',
+              '04_Formal_Results/Phylogenetic tree/tax_sequence_2_rename.fasta')
+
+output_file <- "04_Formal_Results/Phylogenetic tree/combined_sequences.fasta"
+combine_fasta_files(file_list, output_file)
+cmd.fasta = readDNAStringSet('04_Formal_Results/Phylogenetic tree/combined_sequences.fasta')
+# cmd.fasta.name = sub("^[^-]*-", "", names(cmd.fasta))
+# duplicated(sub("^[^-]*-", "", names(cmd.fasta))) # All FALSE
+# 
+# sum(!gut_genus_name %in% cmd.fasta.name) # Num = 0
+# gut_genus_name[duplicated(gut_genus_name)]
+# cmd.fasta.name[!cmd.fasta.name %in% gut_genus_name] # show which one is wrong.
+```
+
+### Visualization-1 (Tree from MEGA, doesn't work)
+```{r}
+library(ggtree)
+library(ggplot2)
+
+tree <- read.tree("/Users/gsn/Desktop/Newick Export.nwk") # 04_Formal_Results/Phylogenetic tree/Newick Export.nwk
+# ggtree(tree)
+
+# Visualize the tree structure
+a = tidytree::as_tibble(tree)
+
+tree$tip.label
+tree$tip.label = sub("^[^-]*-", "", tree$tip.label)
+tree$tip.label = sub("genus_Eubacteriumeligensgroup", "", tree$tip.label)
+tree$tip.label = sub("EF686541.1.1495", "", tree$tip.label)
+tree$tip.label = sub("S483429.387643.389170_Bacteria_Proteobacteria_Gammaproteobacteria_Enterobacterales_Pasteurellaceae_Haemophilus_", "", tree$tip.label)
+tree$tip.label = sub("483429.933114.934642_Bacteria_Proteobacteria_Gammaproteobacteria_Enterobacterales_Pasteurellaceae_Haemophilus_", "", tree$tip.label)
+tree$tip.label = sub("3429.1836766.1838293_Bacteria_Proteobacteria_Gammaproteobacteria_Enterobacterales_Pasteurellaceae_Haemophilus_", "", tree$tip.label)
+tree$tip.label = sub("429.1049050.1050577_Bacteria_Proteobacteria_Gammaproteobacteria_Enterobacterales_Pasteurellaceae_Haemophilus_", "", tree$tip.label)
+tree$tip.label = sub("29.440988.442515_Bacteria_Proteobacteria_Gammaproteobacteria_Enterobacterales_Pasteurellaceae_Haemophilus_", "", tree$tip.label)
+
+
+p1 = ggtree(tree, layout = "circular", branch.length = "none", size = 0.5) + 
+  geom_tiplab(color = "grey50", hjust = -0.1, size = 1, offset = 0.2) + # 添加基因ID
+    # color ：修改基因ID的颜色
+    # hjust ：调节基因ID的位置
+    # size ：修改基因ID大小
+    # offset ：修改分支到基因ID的距离
+  geom_tippoint(color = "lightgreen", size = 2)# 在分支末端加上形状
+  
+
+# 生成注释文件
+anno=data.frame(row.names = tree$tip.label,
+                node=tree$tip.label,
+                value1=abs(rnorm(121)),high=abs(rnorm(121,5)))
+library(ggnewscale)
+library(ggtreeExtra)
+p2 = p1 +  ggnewscale::new_scale_fill() + 
+      geom_fruit(
+          data=anno,
+          geom=geom_tile,
+          mapping=aes(y=node, fill=value1),
+          offset=0.08,   # 调节
+          pwidth=0.55 # width of the external layer, default is 0.2 times of x range of tree.
+      ) + 
+      scale_fill_gradient(low = "white",high = "red")
+
+pdf('/Users/gsn/Desktop/try.pdf')
+p2 + ggnewscale::new_scale_fill() +
+      geom_fruit(
+          data=anno,
+          geom=geom_col,
+          mapping=aes(y=node, x=high, fill=high), 
+          pwidth=0.4,offset = 0.1,
+          axis.params=list(
+                          axis="x", # 添加x轴文字
+                          text.size=2, #文字大小
+                          text.angle=-45, # 角度
+                          hjust=0  # 调节
+                      ),
+          grid.params=list() # 添加网格线
+      )
+dev.off()
+```
+
+
+### Self-defined Tree (Plan-B, Demo)
+Just Example: Show it works when we custom dataframes
+```{r}
+library(ape)
+library(dplyr)
+library(ggtree)
+library(ggplot2)
+library(Biostrings)
+
+# 准备数据
+taxa <- data.frame(
+  Kingdom = c("Bacteria", "Bacteria", "Bacteria"),
+  Phylum = c("Proteobacteria", "Proteobacteria", "Bacteroidetes"),
+  Class = c("Gammaproteobacteria", "Gammaproteobacteria", "Bacteroidia"),
+  Order = c("Enterobacterales", "Bacillales", "Bacteroidales"),
+  Family = c("Enterobacteriaceae", "Staphylococcaceae", "Bacteroidaceae"),
+  Genus = c("Escherichia", "Staphylococcus", "Bacteroides"),
+  Species = c("E. coli", "S. aureus", "B. fragilis")
+)
+
+taxa$Species= as.factor(taxa$Species)
+taxa$Genus= as.factor(taxa$Genus)
+taxa$Family= as.factor(taxa$Family)
+taxa$Phylum= as.factor(taxa$Phylum)
+taxa$Class= as.factor(taxa$Class)
+taxa$Order= as.factor(taxa$Order)
+taxa$Kingdom = as.factor(taxa$Kingdom)
+
+# 创建phylo对象
+tree <- as.phylo(~Kingdom/Phylum/Class/Order/Family/Genus/Species, data=taxa)
+
+# 绘制树
+ggtree(tree) + geom_tiplab()
+
+## 尝试给树标签
+tree <- rtree(30)
+data <- data.frame(id=c(34, 56),
+                   annote=c("another clade", "long clade names"),
+                   image=c("7fb9bea8-e758-4986-afb2-95a2c3bf983d",
+                           "0174801d-15a6-4668-bfe0-4c421fbe51e8"),
+                   group=c("A", "B"),
+                   offset=c(0.1, 0.1),
+                   offset.text=c(0.1, 0.2))
+
+p <- ggtree(tree) + xlim(NA, 6)
+
+p + geom_cladelab(node=45, label="test label") +
+    geom_cladelab(node=34, label="another clade")
+p2 <- p + geom_cladelab(data=data,
+                        mapping=aes(
+                             node=id, 
+                             label=annote, 
+                             image=image,
+                             color=group, 
+                             offset=offset
+                        ),
+                        geom="shadowtext",
+                        hjust=0.5,
+                        align=TRUE,
+                        horizontal=FALSE,
+                        angle=90,
+                        show.legend = FALSE
+                       ) 
+```
+
+### Self-defined Tree (Plan-B, Real)
+```{r}
+library(ggnewscale)
+library(ggtreeExtra)
+
+# 读取所有未修改名的FASTA文件
+##FASTA文件列表
+file_list <- list.files('04_Formal_Results/Phylogenetic tree/selected_FASTA/')
+file_list = paste0('04_Formal_Results/Phylogenetic tree/selected_FASTA/', 
+                   file_list[grepl('FLASV', file_list)])
+file_list = c(file_list, 
+              '04_Formal_Results/Phylogenetic tree/tax_sequence_1.fasta',
+              '04_Formal_Results/Phylogenetic tree/tax_sequence_2.fasta')
+
+combine_fasta_files(file_list, '04_Formal_Results/Phylogenetic tree/combined_sequences_RawName.fasta')
+
+## Check combined FASTA files
+cmd.fasta.fullName = readDNAStringSet('04_Formal_Results/Phylogenetic tree/combined_sequences_RawName.fasta')
+cmd.fasta.singleName = readDNAStringSet('04_Formal_Results/Phylogenetic tree/combined_sequences.fasta')
+
+
+## 构成字符和菌群的对应关系
+split_list = strsplit(names(cmd.fasta.singleName), "-")
+dat.gut.fasta.link <- do.call(rbind, lapply(split_list, function(x) {
+  data.frame(ID = x[1], Gut = ifelse(length(x) > 1, x[2], NA))
+})) 
+
+## 提取每个菌群ID和对应的发育树关系
+gut.fulltax.name = names(cmd.fasta.fullName)
+
+### 从MIDAS中识别的文件，采用";"来分割结果
+tmp.split.MIDAS = strsplit(gut.fulltax.name[!grepl(' ', gut.fulltax.name)], ";")
+tmp.split.MIDAS.df <- do.call(rbind, lapply(tmp.split.MIDAS, function(x) {
+  data.frame(ID = x[1], Gut.tax = ifelse(length(x) > 1, x[2], NA), stringsAsFactors = FALSE)
+})) |>
+  mutate(Gut.tax = sub('tax=', '', Gut.tax),
+         Gut.tax = sub(',s:.*', '', Gut.tax))
+
+### 从SILVA中识别的文件，采用" "来分割结果
+tmp.split.SILVA = strsplit(gut.fulltax.name[grepl(' ', gut.fulltax.name)], " ")
+tmp.split.SILVA.df <- do.call(rbind, lapply(tmp.split.SILVA, function(x) {
+  data.frame(ID = x[1], Gut.tax = ifelse(length(x) > 1, x[2], NA), stringsAsFactors = FALSE)
+}))
+
+### Combine MIDAS and SILVA results together
+dat.gut.fasta.fullName = rbind(tmp.split.MIDAS.df, tmp.split.SILVA.df)
+
+## Match Link and fullName
+dat.gut.all.raw = merge(dat.gut.fasta.link, dat.gut.fasta.fullName, 'ID')
+dat.gut.all.split1 = dat.gut.all.raw %>%
+  separate(Gut.tax, into = c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"), sep = ";", fill = "right") 
+dat.gut.all.split2 = dat.gut.all.raw[is.na(dat.gut.all.split1$Order),] %>%
+  mutate(Gut.tax = gsub(".:", "\\1", Gut.tax)) %>%
+  separate(Gut.tax, into = c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"), sep = ",", fill = "right")
+
+dat.gut.all = rbind(dat.gut.all.split1[!is.na(dat.gut.all.split1$Order),], 
+                    dat.gut.all.split2) |> select(-Species)
+
+## Clean results to correspond out Guts
+dat.gut.all$Order[dat.gut.all$Order == 'Peptostreptococcales-Tissierellales'] = 'Peptostreptococcales'
+dat.gut.all$Order[dat.gut.all$Order == 'Veillonellales-Selenomonadales'] = 'Veillonellales'
+dat.gut.all$Family[dat.gut.all$Family == 'Eubacterium_coprostanoligenes_group'] = 'Eubacterium'
+dat.gut.all$Gut[dat.gut.all$Gut == 'genus Escherichia'] = 'genus Escherichia Shigella'
+dat.gut.all$Gut[dat.gut.all$Gut == 'genus Erysipelotrichaceae'] = 'genus ErysipelotrichaceaeUCG003'
+
+# Build the self-defined Trees
+dat.tree.raw.data = dat.gut.all |>
+  mutate(Genus = Gut) |>
+  select(-ID, -Gut)
+
+dat.tree.raw.data[] = lapply(dat.tree.raw.data, as.factor)
+dat.tree.raw.data
+write.csv(dat.tree.raw.data, '04_Formal_Results/Phylogenetic tree/generated.tree.csv')
+
+# 可视化所建立的树
+## 创建phylo对象
+tree <- as.phylo(~Kingdom/Phylum/Class/Order/Family/Genus, data=dat.tree.raw.data)
+
+p1 = ggtree(tree, layout = "circular", branch.length = "none", size = 0.5) + 
+    # color ：修改基因ID的颜色
+    # hjust ：调节基因ID的位置
+    # size ：修改基因ID大小
+    # offset ：修改分支到基因ID的距离
+  geom_tippoint(color = "lightgreen", size = 0.3)# 在分支末端加上形状
+  
+
+# 生成注释文件
+## 读取Gut-ASD的数据文件
+dat.Gut.ASD = read.csv('01_Gut_Out/03_results/Gut_ASD_NotCheckConfounding.csv') |>
+  filter(method == 'Inverse variance weighted',
+         grepl('genus.', Exposure),
+         !grepl('unknowngenus', Exposure)) |>
+  select(Exposure, b, pval) |>
+  mutate(Exposure = sub('PRESSO_final_', '', Exposure),
+         Exposure = sub('PRESSO_NULL_final_', '', Exposure),
+         Exposure = sub('.csv', '', Exposure),
+         Exposure = replace_..(Exposure),
+         Exposure = replace_..(Exposure),
+         Exposure = sub('\\.id.*', '', Exposure),
+         Exposure = sub('\\ id.*', '', Exposure))
+
+dat.anno = merge(dat.tree.raw.data, dat.Gut.ASD, 
+      by.y = 'Exposure',
+      by.x = 'Genus',
+      all.x = TRUE) |> 
+  select(Genus, b, pval) |>
+  mutate(OR = exp(b),
+         `-Log P` = -log10(pval))
+dat.anno$OR[dat.anno$OR>=1.5] = 1.5
+
+p2 = p1 + ggnewscale::new_scale_fill() + 
+      geom_fruit(
+          data=dat.anno,
+          geom=geom_tile,
+          mapping=aes(y=Genus, fill=OR),
+          offset=0.08,   # 调节
+          pwidth=0.55 # width of the external layer, default is 0.2 times of x range of tree.
+      ) + 
+      scale_fill_gradient2(low = "blue",
+                           mid = "white", 
+                           midpoint = 1,
+                           high = 'red',
+                           limits = c(0.5, 1.5))
+  #geom_tiplab(color = "grey50", hjust = -0.1, size = 1, offset = 1.2)# 添加基因ID
+
+p3 = p2 + ggnewscale::new_scale_fill() +
+      geom_fruit(
+          data=dat.anno,
+          geom=geom_col,
+          mapping=aes(y=Genus, x=`-Log P`, fill=`-Log P`), 
+          pwidth=0.4,offset = 0.1,
+          axis.params=list(
+                          axis="x", # 添加x轴文字
+                          text.size=2, #文字大小
+                          text.angle=-45, # 角度
+                          hjust=0  # 调节
+                      ),
+          # grid.params=list() # 添加网格线
+      ) + 
+  geom_tiplab(color = "grey50", hjust = -0.1, size = 1.5, offset = 1.8)
+
+
+# merge(dat.tree.raw.data, dat.Gut.ASD, 
+#       by.y = 'Exposure',
+#       by.x = 'Genus',
+#       all.x = TRUE) |> filter(is.na(b))
+# 
+#  merge(dat.Gut.ASD, dat.tree.raw.data, 
+#       by.x = 'Exposure',
+#       by.y = 'Genus',
+#       all.x = TRUE) |> filter(is.na(Class))
+ 
+pdf('04_Formal_Results/Phylogenetic tree/PhyloAnalysis.plot.pdf')
+print(p3)
+dev.off()
+```
+
+
+
+### Visualization-2
+```{r}
+library(ggtree)
+library(ggplot2)
+
+# Visualize the tree structure
+a = tidytree::as_tibble(tree)
+
+## modify the label name
+tree$tip.label = sub("^[^_]*_", "", tree$tip.label)
+
+
+# 使用sub函数删除第一个-前的字符，并保留其后的部分
+split_strings <- strsplit(tree$tip.label, "_", fixed = TRUE)
+
+# 获取最大列数以确保所有拆分的部分都能存储在数据框中
+max_length <- max(sapply(split_strings, length))
+
+# 将拆分的字符串填充为相同长度的列表
+split_strings_padded <- lapply(split_strings, function(x) {
+  length(x) <- max_length
+  return(x)
+})
+
+# 转换为数据框
+df <- do.call(rbind, lapply(split_strings_padded, 
+                            function(x) data.frame(matrix(x, nrow = 1), stringsAsFactors = FALSE)))
+
+colnames(df)[1:6] = c('Domain', 'Phylum', 'Class', 'Order', 'Family', 'Genus')
+length(unique(df$Phylum)) # Num = 6
+unique(df$Phylum)
+
+
+
+# 输出结果
+cat("Part 1:", part1, "\n")
+cat("Part 2:", part2, "\n")
+
+
+p1 = ggtree(tree, layout = "circular", branch.length = "none", size = 0.5) + 
+  geom_tiplab(color = "grey50", hjust = -0.1, size = 1, offset = 0.2) + # 添加基因ID
+    # color ：修改基因ID的颜色
+    # hjust ：调节基因ID的位置
+    # size ：修改基因ID大小
+    # offset ：修改分支到基因ID的距离
+  geom_tippoint(color = "lightgreen", size = 2)# 在分支末端加上形状
+  
+
+# 生成注释文件
+anno=data.frame(row.names = tree$tip.label,
+                node=tree$tip.label,
+                value1=abs(rnorm(52)),high=abs(rnorm(52,5)))
+library(ggnewscale)
+library(ggtreeExtra)
+p2 = p1 +  ggnewscale::new_scale_fill() + 
+      geom_fruit(
+          data=anno,
+          geom=geom_tile,
+          mapping=aes(y=node, fill=value1),
+          offset=0.08,   # 调节
+          pwidth=0.55 # width of the external layer, default is 0.2 times of x range of tree.
+      ) + 
+      scale_fill_gradient(low = "white",high = "red")
+
+p2 + ggnewscale::new_scale_fill() +
+      geom_fruit(
+          data=anno,
+          geom=geom_col,
+          mapping=aes(y=node, x=high, fill=high), 
+          pwidth=0.4,offset = 0.1,
+          axis.params=list(
+                          axis="x", # 添加x轴文字
+                          text.size=2, #文字大小
+                          text.angle=-45, # 角度
+                          hjust=0  # 调节
+                      ),
+          grid.params=list() # 添加网格线
+      )
+```
+
+
+
+## 04.2 Enriched metabolic pathway
+```{r}
+dat = read.csv('03_Processed_Results/Enrichment_Analysis/Enrichment_Plots_Data.csv')
+dat = dat |>
+  rename(P_value = P.value,
+         Pathway = Metabolite.Set) |>
+  mutate(Enrichment_Ratio = Hits/Expect) |>
+  select(-Total, -Hits, -Expect, -Holm.P, -FDR) |>
+  arrange(desc(P_value))
+
+dat$Pathway <- factor(dat$Pathway, levels = dat$Pathway)
+
+
+# Create a complete heat map
+pdf('03_Processed_Results/Enrichment_Analysis/EnrichMent-all.pdf')
+ggplot(dat, aes(x = -log10(P_value), y = Pathway)) +
+  geom_point(aes(size = Enrichment_Ratio, color = P_value)) +
+  scale_color_gradient(low = "red", high = "yellow", name = "P-value") +
+  scale_size_continuous(range = c(3, 10), name = "Enrichment Ratio") +
+  theme_minimal() +
+  labs(
+    title = "Significant Enriched Metabolite Sets",
+    x = "-Log10 (p-value)",
+    y = ""
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    axis.text.y = element_text(size = 10)
+  )
+
+dev.off()
+
+# Create a significant heat map
+dat = dat[c((length(dat$P_value)-4) : length(dat$P_value)),]
+pdf('03_Processed_Results/Enrichment_Analysis/EnrichMent-Sig.pdf', height = 4, width = 10)
+ggplot(dat, aes(x = -log10(P_value), y = Pathway)) +
+  geom_point(aes(size = Enrichment_Ratio, color = P_value)) +
+  scale_color_gradient(low = "red", high = "orange", name = "P-value") +
+  scale_size_continuous(range = c(3, 10), name = "Enrichment Ratio") +
+  theme_minimal() +
+  labs(
+    title = "Enriched Metabolite Sets (Top5)",
+    x = "-Log10 (p-value)",
+    y = ""
+  ) +
+  theme(
+    plot.title = element_text(size = 17,hjust = 0.7, face = "bold"),
+    axis.text.y = element_text(size = 15, face = 'bold'),
+    axis.text.x = element_text(size = 13, face = 'bold'),
+    axis.title = element_text(size = 15, face = 'bold'),
+    legend.title = element_text(size = 11, face = 'bold'),
+    legend.text = element_text(size = 10),
+    legend.key.size = unit(0.8, "lines")
+  ) + 
+  scale_x_continuous(limits = c(0.5, 2.5))
+  
+dev.off()
+```
+
+
+# 05.Reverse MR
+## 建立输出环境
+```{r}
+folder_path = paste0(c(here(), '/04-敏感性分析/'), collapse = '')
+output_folder = paste0(c(folder_path, 'output'), collapse = '')
+if (!dir.exists(output_folder)){
+  dir.create(output_folder)
+  print(paste("文件夹已创建:", output_folder))
+} else {
+  print("文件夹已存在")
+}
+```
+
+## 提取Cog的SNP, Cog, Non_Cog, Emotion_Recognition
+```{r}
+source('Function-Sup.R')
+setwd('/Volumes/LaCie/10_孟德尔随机化/data_raw/Cog+NonCog/GWAS_Response_Inhibition/')
+dat = dat_read('2020.02.27_GWAS_Response_Inhibition_Data_Sheet.txt')
+dat_2 = rename_dat(dat)
+head(dat_2)
+## 如果通过source读取的函数无法运行，则手动运行Function-SUP中的exp_P_LD_local函数
+exp = exp_P_LD_local(data = dat_2,
+                     p_value = 5e-6,
+                     clump_kb = 10000,
+                     clump_r2 = 0.01,
+                     output_file_name = 'Response_Inhibition')
+```
+
+### 对Cog的SNP计算F和MAF (文件夹中自动运算)
+```{r}
+cal_F_MAF_check('04-敏感性分析/output/Clumped_SNP/')
+## No SNP need to be excluded
+## All SNP have F value > 10.
+```
+
+## 协调Cog和Gut/Met中的SNP
+### Gut: 本地文件(不采取循环策略), MR-PRESSO筛选SNP
+```{r}
+# Cog->class Clostridia
+exp = read.csv('04-敏感性分析/output/final_Clumped_SNP_Cog.csv'); exp$X = NULL
+out = dat_read('/Volumes/LaCie/10_孟德尔随机化/data_raw/MiBioGen_class/class.Clostridia.id.1859.summary.txt.gz')
+out_2 = rename_dat(out);head(out_2)
+mr_dat = Two_MR(exp, out_2)
+write.csv(mr_dat, '04-敏感性分析/output/Harmonized_SNP/Harmonized_SNP_Cog_Class_Clostridia.csv')
+result <- mr_presso(
+      BetaOutcome ="beta.outcome", 
+      BetaExposure = "beta.exposure", 
+      SdOutcome ="se.outcome", 
+      SdExposure = "se.exposure", 
+      OUTLIERtest = TRUE,DISTORTIONtest = TRUE, NbDistribution = 1000,
+      data = mr_dat,
+      SignifThreshold = 0.05)
+result$`MR-PRESSO results`$`Global Test`$Pvalue
+## No outlier were identified: results`$`Global Test`$Pvalue = 0.829
+
+# Non_Cog->genus RikenellaceaeRC9gutgroup
+exp = read.csv('04-敏感性分析/output/final_Clumped_SNP_Non_Cog.csv'); exp$X = NULL
+out = dat_read('/Volumes/LaCie/10_孟德尔随机化/data_raw/MiBioGen_genus/genus.RikenellaceaeRC9gutgroup.id.11191.summary.txt.gz')
+out_2 = rename_dat(out);head(out_2)
+mr_dat = Two_MR(exp, out_2)
+write.csv(mr_dat, '04-敏感性分析/output/Harmonized_SNP/Harmonized_SNP_Non_Cog_genus_RikenellaceaeRC9gutgroup.csv')
+result <- mr_presso(
+      BetaOutcome ="beta.outcome", 
+      BetaExposure = "beta.exposure", 
+      SdOutcome ="se.outcome", 
+      SdExposure = "se.exposure", 
+      OUTLIERtest = TRUE,DISTORTIONtest = TRUE, NbDistribution = 1000,
+      data = mr_dat,
+      SignifThreshold = 0.05)
+result$`MR-PRESSO results`$`Global Test`$Pvalue
+## No outlier were identified: results`$`Global Test`$Pvalue = 0.223
+
+# Non_Cog->genus Desulfovibrio
+out = dat_read('/Volumes/LaCie/10_孟德尔随机化/data_raw/MiBioGen_genus/genus.Desulfovibrio.id.3173.summary.txt.gz')
+out_2 = rename_dat(out);head(out_2)
+mr_dat = Two_MR(exp, out_2)
+write.csv(mr_dat, '04-敏感性分析/output/Harmonized_SNP/Harmonized_SNP_Non_Cog_genus_Desulfovibrio.csv')
+result <- mr_presso(
+      BetaOutcome ="beta.outcome", 
+      BetaExposure = "beta.exposure", 
+      SdOutcome ="se.outcome", 
+      SdExposure = "se.exposure", 
+      OUTLIERtest = TRUE,DISTORTIONtest = TRUE, NbDistribution = 1000,
+      data = mr_dat,
+      SignifThreshold = 0.05)
+result$`MR-PRESSO results`$`Global Test`$Pvalue
+## No outlier were identified: results`$`Global Test`$Pvalue = 0.103
+
+# Response Inhibition->genus Actinomyces
+exp = read.csv('04-敏感性分析/output/final_Clumped_SNP_Response_Inhibition.csv'); exp$X = NULL
+out = dat_read('/Volumes/LaCie/10_孟德尔随机化/data_raw/MiBioGen_genus/genus.Actinomyces.id.423.summary.txt.gz')
+out_2 = rename_dat(out);head(out_2)
+mr_dat = Two_MR(exp, out_2)
+write.csv(mr_dat, '04-敏感性分析/output/Harmonized_SNP/Harmonized_SNP_Response_Inhibition_genus_Actinomyces.csv')
+result <- mr_presso(
+      BetaOutcome ="beta.outcome", 
+      BetaExposure = "beta.exposure", 
+      SdOutcome ="se.outcome", 
+      SdExposure = "se.exposure", 
+      OUTLIERtest = TRUE,DISTORTIONtest = TRUE, NbDistribution = 1000,
+      data = mr_dat,
+      SignifThreshold = 0.05)
+# Not enough intrumental variables, No need to do this process.
+```
+
+### Met: IEU在线文件(不采取循环策略)
+```{r}
+if(!require("BiocManager")) install.packages("BiocManager",update = F,ask = F)
+#options(BioC_mirror="http://mirrors.tuna.tsinghua.edu.cn/bioconductor")
+if(!require(VariantAnnotation)) BiocManager::install("VariantAnnotation",update = F,ask = F)
+if(!require(genetics.binaRies)) devtools::install_local("genetics.binaRies-master.zip",upgrade = F)
+if(!require(plinkbinr)) devtools::install_local("plinkbinr-master.zip",upgrade = F)
+if(!require(gwasvcf)) devtools::install_github("MRCIEU/gwasvcf",upgrade = F)
+if(!require(TwoSampleMR)) devtools::install_github("MRCIEU/TwoSampleMR",upgrade = F)
+if(!require(gwasglue)) devtools::install_local("gwasglue-master.zip",upgrade = F)
+```
+
+```{r}
+# Cog->Acetylcarnitine (met-a-463)
+exp = read.csv('04-敏感性分析/output/final_Clumped_SNP_Cog.csv'); exp$X = NULL
+temp=VariantAnnotation::readVcf("/Users/gsn/Downloads/met-a-463.vcf.gz")
+out=gwasglue::gwasvcf_to_TwoSampleMR(temp,type = "outcome")
+colnames(out) = sub('.outcome', '', colnames(out))
+out_2 = rename_dat(out); head(out_2)
+
+mr_dat = Two_MR(exp, out_2)
+write.csv(mr_dat, '04-敏感性分析/output/Harmonized_SNP/Harmonized_SNP_Cog_Acetylcarnitine.csv')
+result <- mr_presso(
+      BetaOutcome ="beta.outcome", 
+      BetaExposure = "beta.exposure", 
+      SdOutcome ="se.outcome", 
+      SdExposure = "se.exposure", 
+      OUTLIERtest = TRUE,DISTORTIONtest = TRUE, NbDistribution = 1000,
+      data = mr_dat,
+      SignifThreshold = 0.05)
+result$`MR-PRESSO results`$`Global Test`$Pvalue
+## No outlier were identified: results`$`Global Test`$Pvalue = 0.965
+
+# Non_Cog->1-linoleoylglycerophosphoethanolamine (met-a-497)
+exp = read.csv('04-敏感性分析/output/final_Clumped_SNP_Non_Cog.csv'); exp$X = NULL
+temp=VariantAnnotation::readVcf("/Users/gsn/Downloads/met-a-497.vcf.gz")
+out=gwasglue::gwasvcf_to_TwoSampleMR(temp,type = "outcome")
+colnames(out) = sub('.outcome', '', colnames(out))
+out_2 = rename_dat(out); head(out_2)
+
+mr_dat = Two_MR(exp, out_2)
+write.csv(mr_dat, '04-敏感性分析/output/Harmonized_SNP/Harmonized_SNP_Non_Cog_linoleoylglycerophosphoethanolamine.csv')
+result <- mr_presso(
+      BetaOutcome ="beta.outcome", 
+      BetaExposure = "beta.exposure", 
+      SdOutcome ="se.outcome", 
+      SdExposure = "se.exposure", 
+      OUTLIERtest = TRUE,DISTORTIONtest = TRUE, NbDistribution = 1000,
+      data = mr_dat,
+      SignifThreshold = 0.05)
+result$`MR-PRESSO results`$`Global Test`$Pvalue
+## No outlier were identified: results`$`Global Test`$Pvalue = 0.056
+
+
+# Non_Cog->Hypoxanthin (met-a-361)
+temp=VariantAnnotation::readVcf("/Users/gsn/Downloads/met-a-361.vcf.gz")
+out=gwasglue::gwasvcf_to_TwoSampleMR(temp,type = "outcome")
+colnames(out) = sub('.outcome', '', colnames(out))
+out_2 = rename_dat(out); head(out_2)
+
+mr_dat = Two_MR(exp, out_2)
+write.csv(mr_dat, '04-敏感性分析/output/Harmonized_SNP/Harmonized_SNP_Non_Cog_Hypoxanthin.csv')
+result <- mr_presso(
+      BetaOutcome ="beta.outcome", 
+      BetaExposure = "beta.exposure", 
+      SdOutcome ="se.outcome", 
+      SdExposure = "se.exposure", 
+      OUTLIERtest = TRUE,DISTORTIONtest = TRUE, NbDistribution = 1000,
+      data = mr_dat,
+      SignifThreshold = 0.05)
+result$`MR-PRESSO results`$`Global Test`$Pvalue
+## No outlier were identified: results`$`Global Test`$Pvalue = 0.06
+```
+
+## 不同MR方法(经典+cML_MR)
+```{r}
+## 计算不同MR方法 (经典+新型)，同时计算异质性和MR-Egger多效性
+library(MRcML)
+folder_path = '04-敏感性分析/output/Harmonized_SNP/'
+file_names = list.files(folder_path)
+
+result_total = data.frame()
+for (file_name in file_names){
+  file_path = paste(c(folder_path, file_name), collapse = '')
+  mr_dat = read.csv(file_path)
+  
+  result_temp = mr(mr_dat)
+  new_column = file_name
+  result_temp = cbind(new_column, result_temp); colnames(result_temp)[1] = 'Exposure'
+  
+  result_cML = mr_cML(mr_dat$beta.exposure,
+                       mr_dat$beta.outcome,
+                       mr_dat$se.exposure,
+                       mr_dat$se.outcome,
+                       n = ifelse(grepl('Non_Cog', file_name),
+                                  510795,
+                                  ifelse(grepl('Cog',file_name), 257700, 2560)),
+                       random_start = 100,
+                       random_seed = 208)
+  result_cML_temp = data.frame(result_temp[1,1:5],
+                               'cML-MR',
+                               result_temp[1,7],
+                               result_cML$BIC_theta,
+                               result_cML$BIC_se,
+                               result_cML$BIC_p)
+  colnames(result_cML_temp) = c(colnames(result_temp)[1:5], 'method', 'nsnp','b','se','pval')
+  result_temp = rbind(result_temp, result_cML_temp)
+  
+  result_total = rbind(result_total, result_temp)
+  save_path = paste(c(folder_path, 'Met-c-Emotion_Recognition.csv'), collapse = '')
+  write.csv(result_total, save_path)
+}
+
+## No reverse causal relationship.
+```
+
+# 07.敏感性分析作图
+## Leave-One-Out-Plot
+```{r}
+# Cog->class Clostridia
+# Non_Cog->genus RikenellaceaeRC9gutgroup
+# Non_Cog->genus Desulfovibrio
+# Response Inhibition->genus Actinomyces
+# Cog->Acetylcarnitine (met-a-463)
+# Non_Cog->1-linoleoylglycerophosphoethanolamine (met-a-497)
+# Non_Cog->Hypoxanthin (met-a-361)
+
+folder_path = '04-敏感性分析/Leave_One_Plot/analyzed_mr_dat/'
+file_names = list.files(folder_path)
+file_names
+
+exposure_name_list = c('Cognitive traits',
+                       'Non-Cognitive traits',
+                       'Cognitive traits',
+                       'Non-Cognitive traits',
+                       'Response Inhibition',
+                       'Non-Cognitive traits',
+                       'Non-Cognitive traits')
+
+outcome_name_list = c('class Clostridia',
+                       'Hypoxanthin',
+                       'Acetylcarnitine',
+                       '1-linoleoylglycerophosphoethanolamine',
+                       'genus Actinomyces',
+                       'genus Desulfovibrio',
+                       'genus RikenellaceaeRC9gutgroup')
+
+num = 1
+for (file_name in file_names){
+  output_filename = paste0(c('04-敏感性分析/Leave_One_Plot/', file_name, '.pdf'), collapse = '')
+  pdf(output_filename, height = 4, width = 6)
+  file_path = paste(c(folder_path, file_name), collapse = '')
+  mr_dat = read.csv(file_path); dat$X = NULL
+  
+  mr_dat$exposure = exposure_name_list[num]
+  mr_dat$outcome = outcome_name_list[num]
+  
+  #pdf(output_file_name)
+  print(mr_leaveoneout_plot(leaveoneout_results = mr_leaveoneout(mr_dat)))
+  num = num + 1
+  dev.off()
+}
+```
+
+## Scatter Plot
+```{r}
+num = 1
+output_filename = paste0(c('04-敏感性分析/Scatter_Plot/', 'All', '.pdf'), collapse = '')
+pdf(output_filename, height = 6, width = 8)
+for (file_name in file_names){
+  #output_filename = paste0(c('04-敏感性分析/Scatter_Plot/', file_name, '.pdf'), collapse = '')
+  #pdf(output_filename, height = 6, width = 6)
+  file_path = paste(c(folder_path, file_name), collapse = '')
+  mr_dat = read.csv(file_path); dat$X = NULL
+  
+  mr_results = mr(mr_dat,
+                  method_list = subset(mr_method_list(), use_by_default)$obj[-5])
+  
+  mr_results$exposure = exposure_name_list[num]
+  mr_results$outcome = outcome_name_list[num]
+  
+  mr_dat$exposure = exposure_name_list[num]
+  mr_dat$outcome = outcome_name_list[num]
+  
+  #pdf(output_file_name)
+  print(mr_scatter_plot(mr_results, mr_dat))
+  num = num + 1
+  #dev.off()
+}
+dev.off()
+```
+
+# 08.整合补充材料
+## Gut->Cog
+### SNP selected for MR analysis
+```{r}
+folder_path = '05-补充材料/01_Gut_Cog/SNP selected for MR analysis/'
+file_names = list.files(folder_path)
+
+label = 1
+result_all = data.frame()
+for (file_name in file_names){
+  file_path1 = paste0(c(folder_path, file_name, '/'), collapse = '')
+  SNP_file_names = list.files(file_path1)
+  for (SNP_file_name in SNP_file_names){
+    SNP_file_path = paste0(c(file_path1, SNP_file_name), collapse = '')
+    temp = read.csv(SNP_file_path) |> 
+      select(-X, -remove, -palindromic, -ambiguous,
+             -outcome, -mr_keep.outcome,
+             -pval_origin.outcome, 
+             -data_source.outcome, 
+             -exposure,
+             -mr_keep.exposure, 
+             -pval_origin.exposure,
+             -data_source.exposure,
+             -F_stat_check,
+             -MAF_check,
+             -action,
+             -mr_keep,
+             -samplesize.outcome) |>
+      mutate(Outcome = sub('_PRESSO', '', file_name),
+             Exposure = sub('PRESSO_final_', '', sub('.csv', '', SNP_file_name)))
+    temp$No = ''; temp['No'][1,] = paste0(c('NO.', label), collapse = '')
+    temp = temp[, c(ncol(temp),
+                    ncol(temp)-1,
+                    ncol(temp)-2,
+                    1:(ncol(temp)-3))]
+    
+    result_all = rbind(result_all, temp)
+    label = label+1
+  }
+}
+
+write.csv(result_all, '05-补充材料/01_Gut_Cog/SNP_selected for MR analysis.csv')
+
+```
+
+
+### MR results
+```{r}
+folder_path = '05-补充材料/01_Gut_Cog/MR results/'
+file_names = list.files(folder_path)
+
+result = data.frame()
+for (i in 1:length(file_names)){
+  file_name = file_names[i]
+  file_path = paste0(c(folder_path, file_name),
+                     collapse = '')
+  dat = read_xlsx(file_path); dat$X = NULL; dat$...1= NULL
+  
+  ## 从Exposure列中提取Outcome
+  dat$Outcome = sub('\\.id.*$', '', sub('PRESSO_final_', '', dat$Exposure))
+  
+  ## 从file_name中提取Exposure
+  dat['Exposure'] = sub('.xlsx','',sub('.*_', '', file_name))
+  
+  ## 剔除所有Simple Mode的结果
+  dat = dat[!dat$method == 'Simple mode',]
+  
+  dat$exposure = NULL; dat$outcome = NULL
+  dat <- dat[, c(1, ncol(dat), 2:(ncol(dat)-1))]
+  dat$id.exposure = NULL; dat$id.outcome = NULL
+  
+  ## 调整methods对每个关联的呈现顺序
+  method_order <- c("MR Egger", "cML-MR", "Inverse variance weighted", "Weighted median", "Weighted mode")
+  dat$method <- factor(dat$method, levels = method_order)
+  dat <- dat %>%
+    arrange(Outcome, method)
+  
+  result = rbind(result, dat)
+}
+
+output_path = paste0(c(folder_path, 'Combined.xlsx'), collapse = '')
+writexl::write_xlsx(result, output_path)
+```
+
+### 异质性检验
+```{r}
+folder_path = '05-补充材料/01_Gut_Cog/异质性&多效性检验/'
+file_names = list.files(folder_path)
+
+result = data.frame()
+for (i in 1:length(file_names)){
+  file_name = file_names[i]
+  file_path = paste0(c(folder_path, file_name),
+                     collapse = '')
+  dat = read.csv(file_path); dat$X = NULL; dat$...1= NULL
+  
+  ## 从Exposure列中提取Outcome
+  dat$Outcome = sub('\\.id.*$', '', sub('PRESSO_final_', '', dat$Exposure))
+  dat$OutCome = NULL
+  
+  ## 从file_name中提取Exposure
+  dat['Exposure'] = sub('_',' ',sub('_PRESSO_异质性&多效性检验.csv', '', file_name))
+  
+  ## 调整新列的位置
+  dat$exposure = NULL; dat$outcome = NULL
+  dat <- dat[, c(1, ncol(dat), 2:(ncol(dat)-1))]
+  dat$id.exposure = NULL; dat$id.outcome = NULL
+  
+  ## 修改Test的名字
+  colnames(dat)[which(colnames(dat) == 'Test.1')] = 'Pleiotropy'; dat$Pleiotropy = 'MR Egger Intercept'
+  colnames(dat)[which(colnames(dat) == 'Method')] = 'Heterogeneity'; dat$Test.2 = NULL
+  
+  result = rbind(result, dat)
+}
+
+output_path = paste0(c(folder_path, 'Combined.xlsx'), collapse = '')
+writexl::write_xlsx(result, output_path)
+```
+
+## Met->Cog
+### SNP selected for MR analysis
+```{r}
+folder_path = '05-补充材料/02_Met_Cog/SNP selected for MR analysis/'
+file_names = list.files(folder_path)
+
+label = 1
+result_all = data.frame()
+for (file_name in file_names){
+  file_path1 = paste0(c(folder_path, file_name, '/'), collapse = '')
+  SNP_file_names = list.files(file_path1)
+  for (SNP_file_name in SNP_file_names){
+    SNP_file_path = paste0(c(file_path1, SNP_file_name), collapse = '')
+    temp = read.csv(SNP_file_path) |> 
+      select(-X, -remove, -palindromic, -ambiguous,
+             -outcome, -mr_keep.outcome,
+             -pval_origin.outcome, 
+             -data_source.outcome, 
+             -exposure,
+             -mr_keep.exposure, 
+             -pval_origin.exposure,
+             -data_source.exposure,
+             -F_stat_check,
+             -MAF_check,
+             -action,
+             -mr_keep,
+             -samplesize.outcome) |>
+      mutate(Outcome = sub('_PRESSO', '', file_name),
+             Exposure = sub('PRESSO_final_CLUMP_', '', 
+                            sub('PRESSO_NULL_final_CLUMP_', '',
+                                sub('.csv', '', SNP_file_name))))
+    temp$No = ''; temp['No'][1,] = paste0(c('NO.', label), collapse = '')
+    temp = temp[, c(ncol(temp),
+                    ncol(temp)-1,
+                    ncol(temp)-2,
+                    1:(ncol(temp)-3))]
+    
+    result_all = rbind(result_all, temp)
+    label = label+1
+  }
+}
+
+write.csv(result_all, '05-补充材料/02_Met_Cog/SNP_selected for MR analysis.csv')
+
+```
+
+### MR results
+```{r}
+folder_path = '05-补充材料/02_Met_Cog/MR results/'
+file_names = list.files(folder_path)
+
+result = data.frame()
+for (i in 1:length(file_names)){
+  file_name = file_names[i]
+  file_path = paste0(c(folder_path, file_name),
+                     collapse = '')
+  dat = read_xlsx(file_path); dat$X = NULL; dat$...1= NULL
+  
+  ## 从Exposure列中提取Outcome
+  dat$Outcome = sub('.csv', '', sub('.*CLUMP_', '', dat$Exposure))
+  
+  ## 从file_name中提取Exposure
+  dat['Exposure'] = sub('.xlsx','',sub('Met-a-', '', file_name))
+  
+  ## 剔除所有Simple Mode的结果
+  dat = dat[!dat$method == 'Simple mode',]
+  
+  dat$exposure = NULL; dat$outcome = NULL
+  dat <- dat[, c(1, ncol(dat), 2:(ncol(dat)-1))]
+  dat$id.exposure = NULL; dat$id.outcome = NULL
+  
+  ## 调整methods对每个关联的呈现顺序
+  method_order <- c("MR Egger", "cML-MR", "Inverse variance weighted", "Weighted median", "Weighted mode")
+  dat$method <- factor(dat$method, levels = method_order)
+  dat <- dat %>%
+    arrange(Outcome, method)
+  
+  result = rbind(result, dat)
+}
+
+output_path = paste0(c(folder_path, 'Combined.xlsx'), collapse = '')
+writexl::write_xlsx(result, output_path)
+```
+
+### 异质性检验
+```{r}
+folder_path = '05-补充材料/02_Met_Cog/异质性&多效性检验/'
+file_names = list.files(folder_path)
+
+result = data.frame()
+for (i in 1:length(file_names)){
+  file_name = file_names[i]
+  file_path = paste0(c(folder_path, file_name),
+                     collapse = '')
+  dat = read_xlsx(file_path); dat$X = NULL; dat$...1= NULL
+  
+  ## 从Exposure列中提取Outcome
+  dat$Outcome = sub('\\.id.*$', '', sub('PRESSO_final_', '', dat$Exposure))
+  dat$OutCome = NULL
+  
+  ## 从file_name中提取Exposure
+  dat['Exposure'] = sub('_',' ',sub('_异质性&多效性检验.xlsx', '', file_name))
+  
+  ## 调整新列的位置
+  dat$exposure = NULL; dat$outcome = NULL
+  dat <- dat[, c(1, ncol(dat), 2:(ncol(dat)-1))]
+  dat$id.exposure = NULL; dat$id.outcome = NULL
+  
+  ## 修改Test的名字
+  colnames(dat)[which(colnames(dat) == 'Test-1')] = 'Pleiotropy'; dat$Pleiotropy = 'MR Egger Intercept'
+  colnames(dat)[which(colnames(dat) == 'Method')] = 'Heterogeneity'; dat$'Test-2' = NULL
+  
+  result = rbind(result, dat)
+}
+
+output_path = paste0(c(folder_path, 'Combined.xlsx'), collapse = '')
+writexl::write_xlsx(result, output_path)
+```
+
+
+## 敏感性分析
+### Reverse MR SNP for Cog, Non-Cog and Response Inhibition
+```{r}
+folder_path = '05-补充材料/反向MR/SNP_selected/'
+file_names = list.files(folder_path)
+
+result = data.frame()
+for (i in 1:length(file_names)){
+  file_name = file_names[i]
+  file_path = paste0(c(folder_path, file_name),
+                     collapse = '')
+  dat = read.csv(file_path); dat$X = NULL
+  label = data.frame(matrix(NA, nrow = 1, ncol = dim(dat)[2]))
+  colnames(label) = colnames(dat)
+  label$SNP = sub('.csv', '', sub('final_', '', file_name))
+  temp_dat = rbind(label, dat)
+  result = rbind(result, temp_dat)
+}
+colnames(result)
+result <- result |> 
+  select(-F_stat_check, -MAF_check, -exposure, -mr_keep.exposure, -pval_origin.exposure, -data_source.exposure)
+
+output_path = paste0(c(folder_path, 'Combined.xlsx'), collapse = '')
+writexl::write_xlsx(result, output_path)
+```
+
+### Reverse MR results
+```{r}
+dat = read.csv('05-补充材料/反向MR/Reverse MR results.csv'); dat$X = NULL
+dat$Exposure = sub('.csv', '', sub('Harmonized_SNP_', '', dat$Exposure))
+dat <- dat |>
+  select(-outcome, -exposure)
+writexl::write_xlsx(dat, '05-补充材料/反向MR/Reverse MR results.xlsx')
+```

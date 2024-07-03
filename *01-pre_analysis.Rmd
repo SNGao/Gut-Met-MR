@@ -1,0 +1,538 @@
+
+# 加载必须的Package和function
+```{r}
+library(TwoSampleMR)
+library(data.table)
+library(MRPRESSO)
+library(stringr)
+library(vroom) # 快速读取大文件
+library(readr)#调用read函数
+library(ieugwasr)
+library(gwasvcf)
+library(VariantAnnotation)
+library(dplyr)
+library(magrittr)
+
+source('Function-MR_Analyze.R')
+source('Function-DATA_process.R')
+source('Function-DATA_read.R')
+source('main_function.R')
+```
+
+# 01.Gut-ASD
+F+MAF Check之后的SNP已经在之前被得到
+## Define functions
+```{r}
+vcf_gz <- function(folder_path,
+                   file_name){
+  print('The file should be in the same path with bcftools')
+  library(gwasvcf)
+  library(VariantAnnotation)
+  library(dplyr)
+  library(magrittr)
+  set_bcftools(folder_path)
+  dat = readVcf(paste0(folder_path, file_name))
+  dat.1 = vcf_to_granges(dat) |> dplyr::as_tibble()
+  head(dat.1)
+  
+  ## Clean Useless column names
+  dat.1$seqnames = NULL
+  dat.1$start = NULL
+  dat.1$end = NULL
+  dat.1$width = NULL
+  dat.1$strand = NULL
+  dat.1$paramRangeID = NULL
+  dat.1$QUAL = NULL
+  dat.1$EZ = NULL
+  dat.1$SI = NULL
+  
+  dat.1$p = 10^(-dat.1$LP)
+  
+  gz_con <- gzfile(sub('vcf', 'csv', file_name), "w") # Open a connection to a .gz file
+  write.csv(dat.1, gz_con, row.names = FALSE) # Write the data frame to the .gz file
+  close(gz_con) # Close the connection
+}
+```
+
+### Generate csv.gz from vcf.gz
+```{r}
+# vcf_gz('00_GWAS/Anxiety/','ukb-b-11311.vcf.gz')
+# vcf_gz('00_GWAS/Anxiety/','ukb-b-17243.vcf.gz')
+# vcf_gz('00_GWAS/Anxiety/','ukb-b-6991.vcf.gz')
+# vcf_gz('00_GWAS/Anxiety/','ukb-b-18336.vcf.gz') # No need Anxiety anymore
+# vcf_gz('00_GWAS/Parkinson/','ieu-b-7.vcf.gz')
+```
+
+<!-- #> class: CollapsedVCF  -->
+<!-- #> dim: 45 1  -->
+<!-- #> rowRanges(vcf): -->
+<!-- #>   GRanges with 5 metadata columns: paramRangeID, REF, ALT, QUAL, FILTER -->
+<!-- #> info(vcf): -->
+<!-- #>   DataFrame with 3 columns: AF, AC, AN -->
+<!-- #> info(header(vcf)): -->
+<!-- #>       Number Type    Description                                 -->
+<!-- #>    AF A      Float   Allele Frequency                            -->
+<!-- #>    AC A      Integer Allele count in genotypes                   -->
+<!-- #>    AN 1      Integer Total number of alleles in called genotypes -->
+<!-- #> geno(vcf): -->
+<!-- #>   List of length 9: ES, SE, LP, AF, SS, EZ, SI, NC, ID -->
+<!-- #> geno(header(vcf)): -->
+<!-- #>       Number Type   Description                                                 -->
+<!-- #>    ES A      Float  Effect size estimate relative to the alternative allele     -->
+<!-- #>    SE A      Float  Standard error of effect size estimate                      -->
+<!-- #>    LP A      Float  -log10 p-value for effect estimate                          -->
+<!-- #>    AF A      Float  Alternate allele frequency in the association study         -->
+<!-- #>    SS A      Float  Sample size used to estimate genetic effect                 -->
+<!-- #>    EZ A      Float  Z-score provided if it was used to derive the EFFECT and... -->
+<!-- #>    SI A      Float  Accuracy score of summary data imputation                   -->
+<!-- #>    NC A      Float  Number of cases used to estimate genetic effect             -->
+<!-- #>    ID 1      String Study variant identifier -->
+
+### 初步检测关联结果
+```{r}
+folder_path = '01_Gut_Out/00_SNP_selected/'
+file_names <- list.files(folder_path)
+# print(file_names)
+
+
+out = dat_read('00_GWAS/ASD/PGC_ASD2017.gz')
+# out_2 = out |> 
+#   mutate(effect_allele = effect_allele2,
+#          other_allele = other_allele2,
+#          SNP = variant_id2) |>
+#   select(-effect_allele2, -other_allele2,
+#          -variant_id2, -chromosome)
+# out_2$SNP = paste0('rs', out_2$base_pair_location)
+out_2 = rename_dat(out);head(out_2)
+
+colnames(out_2)
+
+result.all = tmp
+for (file_name in file_names){ #
+  file_path = paste(c(folder_path, file_name), collapse = '')
+  dat = read.csv(file_path);  dat$X = NULL
+  mr_dat = Two_MR(dat, out_2)
+  tmp = mr(mr_dat)
+  result.all = rbind(result.all, tmp)
+  write_csv(result.all, 'Gut_Parkingson_result.csv')
+}
+```
+
+## SNP of Gut-ASD(Harmonized + PRESSO)
+```{r}
+folder_path = '01_Gut_Out/00_SNP_selected/'
+file_names <- list.files(folder_path)
+print(file_names)
+
+out = dat_read('00_GWAS/ASD/PGC_ASD2017.gz')
+out_2 = rename_dat(out);head(out_2)
+PRESSO_Check_loop(folder_path, out_2)
+```
+
+
+### Exclude SNPs with confounding factors
+#### Output SNP data to LDlink Tools
+Online Website: https://ldlink.nih.gov/?tab=ldtrait 
+```{r}
+library(LDlinkR)
+folder_path = '01_Gut_Out/00_SNP_selected/'
+file_names <- list.files(folder_path)
+
+SNP_list = c()
+for (file_name in file_names[1:211]){
+  dat = read.csv(paste0(folder_path, file_name)); dat$X = NULL
+  SNP_list = c(SNP_list, dat$SNP)
+}
+SNP_list.unique = unique(SNP_list)
+write.table(SNP_list.unique, '01_Gut_Out/SNP_list_all.txt',
+            sep = "\t", row.names = FALSE, quote = FALSE)
+
+
+library(LDlinkR)
+group_size <- 40
+num_files <- ceiling(length(SNP_list.unique) / group_size)
+
+# 循环输出每组变量开展LDtrait运算
+for (i in 1:num_files) {
+  start_index <- (i - 1) * group_size + 1
+  end_index <- min(i * group_size, length(SNP_list.unique))
+  
+  # 提取当前组的变量
+  current_group <- SNP_list.unique[start_index:end_index]
+  file_name <- paste0("01_Gut_Out/SNP_group", i, ".txt")
+  
+  LDtrait(
+    current_group,
+    pop = "EUR",
+    r2d = "r2",
+    r2d_threshold = 0.1,
+    win_size = 5e+05,
+    token = 'b80fc713b6be',
+    file = file_name,
+    genome_build = "grch38",
+    api_root = "https://ldlink.nih.gov/LDlinkRest"
+  )
+  
+  # 将当前组的变量写入文件
+  # write.table(current_group, file = file_name, sep = "\t", row.names = FALSE, quote = FALSE)
+}
+
+## Combine LDtrait results
+folder_path = '01_Gut_Out/01_SNP_filter/SNP_Confounding_GRH38/'
+files = list.files(folder_path)
+LD_SNP_all = data.frame(Query = NA,
+                        GWAS_Trait = NA,
+                        PMID = NA)
+for (file in files){
+  dat = read.delim(paste0(folder_path, file), header = TRUE, sep = "\t", 
+                   stringsAsFactors = FALSE,fill = TRUE)
+  dat.tmp = dat[,c(1,2,3)]
+  LD_SNP_all = rbind(LD_SNP_all, dat.tmp)
+}
+write.csv(LD_SNP_all[-1,], '01_Gut_Out/01_SNP_filter/LD_SNP_all.csv')
+```
+
+The warning "EOF within quoted string" indicates that there is an issue with the text file where a quoted string is not properly closed before the end of the file is reached. This can often happen if there are unmatched quotes within the data.
+
+To handle this, you can use read.delim() instead of read.table(), as it is more robust in handling tab-delimited files. Additionally, you can try to read the file with quote="" to ignore any quotes within the data.
+
+### Exclude SNPs from confounding factors
+```{r}
+trait.confound = readxl::read_xlsx('01_Gut_Out/01_SNP_filter/LD_SNP_all.xlsx', sheet = '非重复Traits') |>
+  select(`SNP traits`, Label) |>
+  filter(Label == 'Confounding') |>
+  rename(Traits = `SNP traits`)
+
+SNP_all = readxl::read_xlsx('01_Gut_Out/01_SNP_filter/LD_SNP_all.xlsx', sheet = 'LD_SNP_all')
+SNP_all$...1 = NULL
+colnames(SNP_all) = c('SNP', 'Traits'); SNP_all = SNP_all[,-3]
+
+SNP_exlcude_confound = merge(SNP_all, trait.confound, by = 'Traits')$SNP
+folder_path = '01_Gut_Out/00_SNP_selected/PRESSO_FINAL_ASD/'
+file_names <- list.files(folder_path)
+
+for (file_name in file_names){
+  dat = read.csv(paste0(folder_path, file_name)); dat$X = NULL
+  dat.new = dat[!dat$SNP %in% SNP_exlcude_confound,]
+  write_csv(dat.new, paste0('01_Gut_Out/02_final_SNP_noConfounding/', file_name))
+}
+```
+
+
+## MR(Gut-ASD)
+### 计算不同MR方法 (经典+新型)，同时计算异质性和MR-Egger多效性
+for sample size: https://search.r-project.org/CRAN/refmans/MRZero/html/mr_cML.html
+	
+Sample size. When sample sizes of GWAS for exposure and outcome are different, and/or when sample sizes of different SNPs are different, the smallest sample size is recommended to get conservative result and avoid type-I error. See reference for more discussions.
+```{r}
+library(MRcML)
+folder_path = '01_Gut_Out/00_SNP_selected/PRESSO_FINAL_ASD/'
+file_names = list.files(folder_path)
+
+## 循环开展MR
+result_total = data.frame()
+for (file_name in file_names){
+  file_path = paste(c(folder_path, file_name), collapse = '')
+  mr_dat = read.csv(file_path)
+  label = sub('.csv', '', sub('PRESSO_NULL_final_', '', sub("PRESSO_final_", '', file_name, )))
+  
+  result_temp = mr(mr_dat)
+  new_column = file_name
+  result_temp = cbind(new_column, result_temp); colnames(result_temp)[1] = 'Exposure'
+  
+  result_cML = mr_cML(mr_dat$beta.exposure,
+                       mr_dat$beta.outcome,
+                       mr_dat$se.exposure,
+                       mr_dat$se.outcome,
+                       n = 18340,
+                       random_start = 100,
+                       random_seed = 208)
+  result_cML_temp = data.frame(result_temp[1,1:5],
+                               'cML-MR',
+                               result_temp[1,7],
+                               result_cML$BIC_theta,
+                               result_cML$BIC_se,
+                               result_cML$BIC_p)
+  colnames(result_cML_temp) = c(colnames(result_temp)[1:5], 'method', 'nsnp','b','se','pval')
+  result_temp = rbind(result_temp, result_cML_temp)
+  
+  result_total = rbind(result_total, result_temp)
+  save_path = paste(c('01_Gut_Out/03_results/', 
+                      'Gut_ASD_noConfounding_191.csv'), collapse = '')
+  write.csv(result_total, save_path)
+}
+
+result_total = data.frame()
+for (file_name in file_names){
+    file_path = paste0(folder_path, file_name)
+    mr_dat = read.csv(file_path); mr_dat$X=NULL
+    pleiotropy = mr_pleiotropy_test(mr_dat)
+    heterogeneity = mr_heterogeneity(mr_dat)
+    label = sub('.csv', '', sub('PRESSO_NULL_final_', '', sub("PRESSO_final_", '', file_name, )))
+    result_temp = data.frame(
+               label,
+               'pleiotropy_test_Egger',
+               pleiotropy$egger_intercept, pleiotropy$se, pleiotropy$pval,
+               'heterogeneity_IVW',
+               heterogeneity$method[2], heterogeneity$Q[2], heterogeneity$Q_pval[2])
+    colnames(result_temp) = c('Exposure','Test-1',
+                              'Intercept', 'SE', 'p_val',
+                              'Test-2', 'Method','Q2', 'Q2_pval')
+    result_temp$Nsnp = dim(mr_dat)[1]
+    result_total = rbind(result_temp, result_total)
+    write.csv(result_total, paste(c('01_Gut_Out/03_results/','Gut_ASD_异质性&多效性检验_noConfounding.csv'), 
+                                  collapse = ''))
+}
+```
+
+### FDR结果校验
+```{r}
+data = read.csv('01_Gut_Out/03_results/Gut_ASD_noConfounding_191.csv'); data$X = NULL
+head(data)
+
+# 提取IVW方法的显著性结果
+data_IVW = data[data$method == 'Inverse variance weighted',]
+string = data_IVW$Exposure
+data_IVW['label'] = sub(".*_([^.]+)\\..*", "\\1", string)
+
+# 针对不同的特征level进行校正
+lists = unique(data_IVW$label)
+for (list in lists){
+  data_IVW_temp = data_IVW[data_IVW$label == list, ]
+  data_IVW_sorted = data_IVW_temp[order(data_IVW_temp$pval),]
+  print(list)
+  print(p.adjust(data_IVW_sorted$pval, method = "fdr"))
+}
+```
+
+## Sensitivity Analysis
+### Exclude results who show the inconsistency between MR Egger and IVW
+```{r}
+folder_path = '/Users/gsn/Desktop/孟德尔+中介/Aging-MR-SunanGao/01-5种MR+cML结果/'
+list = list.files(folder_path)
+#file_name = 'PRESSO_IF_Cog.xlsx'
+
+for (file_name in list){
+  file_path = paste(c(folder_path, file_name), collapse = '')
+  data = read_excel(file_path)
+  
+  ## 检查MR-Egger和IVW的区别
+  ### 提取IVW或Wald显著的结果
+  data_label = data %>% 
+    filter(method %in% c('Wald ratio','Inverse variance weighted')) %>%
+    filter(pval<0.05,)
+  data_p = data[data$Exposure %in% data_label$Exposure,]
+  
+  ### 剔除IVW和MR-Egger反向的结果
+  data_p_Wald = data_p[data_p$method %in% c('Wald ratio'),]; 
+  data_p_IVW_MR_Egger = data_p[data_p$method %in% c('Inverse variance weighted',
+                                                    'MR Egger'),]
+  
+  list = c()
+  for (exp in unique(data_p_IVW_MR_Egger$Exposure)){
+    temp = data_p_IVW_MR_Egger[data_p_IVW_MR_Egger$Exposure == exp,]$b
+    if (all(temp > 0) || all(temp < 0)) {
+      list = append(list, exp)
+    } else {}
+  }
+
+  data_p_final = rbind(data_p_Wald, data[data$Exposure %in% list,])
+  write_xlsx(data_p_final, path = paste(c(folder_path, 'EGG-CHECK-', file_name), collapse = ''))
+}
+```
+
+### Exclude results who show the inconsistency between multi-MRs and IVW
+```{r}
+folder_path = paste0(c(here(), '/01-Gut-Cog/02-Final_Results_CheckBy_Egger_Presso/'), collapse = '')
+file_names = list.files(folder_path)
+
+# output_folder = paste0(c(folder_path, 'output'), collapse = '')
+# if (!dir.exists(output_folder)){
+#   dir.create(output_folder)
+#   print(paste("文件夹已创建:", output_folder))
+# } else {
+#   print("文件夹已存在")
+# }
+
+
+for (file_name in file_names){
+  
+  file_path = paste0(c(folder_path, '/', file_name), collapse = '')
+  dat = read_xlsx(file_path); dat$...1 = NULL
+  
+  dat = dat[!dat$method == 'Simple mode',]
+  
+  ## 从Exposure列中提取Outcome
+  dat$Exposure = sub('\\.id.*$', '', sub('PRESSO_final_', '', dat$Exposure))
+
+  ## 从file_name中提取Exposure
+  dat['Outcome'] = sub('.xlsx','',sub('EGG-CHECK-PRESSO_IF_', '', file_name))
+  
+  ## 剔除所有Simple Mode的结果
+  dat = dat[!dat$method == 'Simple mode',]
+  
+  dat$exposure = NULL; dat$outcome = NULL
+  dat <- dat[, c(1, ncol(dat), 2:(ncol(dat)-1))]
+  dat$id.exposure = NULL; dat$id.outcome = NULL
+  
+  ## 调整methods对每个关联的呈现顺序
+  method_order <- c("MR Egger", "cML-MR", "Inverse variance weighted", "Weighted median", "Weighted mode")
+  dat$method <- factor(dat$method, levels = method_order)
+  dat <- dat %>%
+    arrange(Exposure, method)
+  
+  ## 检查不同方法的输出结果方向相同
+  dat_exam_list <- dat %>%
+    group_by(Exposure) %>%
+    summarize(same_sign = all(sign(b) == sign(b[1])))
+   
+  dat_exam_list = dat_exam_list[dat_exam_list$same_sign == TRUE, ]$Exposure
+  dat_exam = dat[dat$Exposure %in% dat_exam_list, ]
+  
+  output_path = paste0(c(folder_path, unique(dat$Outcome), '.xlsx'), collapse = '')
+  writexl::write_xlsx(dat_exam, output_path)
+}
+```
+
+### Reverse MR
+
+### Leave-One-Out-Plot
+
+### Scatter Plot
+
+
+
+# 02.Met-ASD
+## SNP of Met-ASD(Harmonized + PRESSO)
+```{r}
+out = dat_read('00_GWAS/ASD/PGC_ASD2017.gz')
+out_2 = rename_dat(out);head(out_2)
+PRESSO_Check_loop(folder_path, out_2)
+
+folder_path = '01_Met_Out/00_SNP_selected/'
+PRESSO_Check_loop(folder_path, out_2) # presso同样需要输出检验结果
+```
+
+### Exclude SNPs with confounding factors
+#### Output SNP data to LDlink Tools
+Online Website: https://ldlink.nih.gov/?tab=ldtrait 
+```{r}
+library(LDlinkR)
+folder_path = '01_Met_Out/00_SNP_selected/PRESSO_FINAL_ASD/'
+file_names <- list.files(folder_path)
+
+SNP_list = c()
+for (file_name in file_names){
+  dat = read.csv(paste0(folder_path, file_name)); dat$X = NULL
+  SNP_list = c(SNP_list, dat$SNP)
+}
+SNP_list.unique = unique(SNP_list)
+write.table(SNP_list.unique, '01_Met_Out/SNP_list_all.txt',
+            sep = "\t", row.names = FALSE, quote = FALSE)
+
+
+library(LDlinkR)
+group_size <- 40
+num_files <- ceiling(length(SNP_list.unique) / group_size)
+
+# 循环输出每组变量开展LDtrait运算
+for (i in 1:num_files) {
+  start_index <- (i - 1) * group_size + 1
+  end_index <- min(i * group_size, length(SNP_list.unique))
+  
+  # 提取当前组的变量
+  current_group <- SNP_list.unique[start_index:end_index]
+  file_name <- paste0("01_Met_Out/SNP_group", i, ".txt")
+  
+  LDtrait(
+    current_group,
+    pop = "EUR",
+    r2d = "r2",
+    r2d_threshold = 0.1,
+    win_size = 5e+05,
+    token = 'b80fc713b6be',
+    file = file_name,
+    genome_build = "grch38",
+    api_root = "https://ldlink.nih.gov/LDlinkRest"
+  )
+  
+  # 将当前组的变量写入文件
+  # write.table(current_group, file = file_name, sep = "\t", row.names = FALSE, quote = FALSE)
+}
+
+## Combine LDtrait results
+folder_path = '01_Met_Out/01_SNP_filter/SNP_Confounding_GRH38/'
+files = list.files(folder_path)
+LD_SNP_all = data.frame(Query = NA,
+                        GWAS_Trait = NA,
+                        PMID = NA)
+for (file in files){
+  dat = read.delim(paste0(folder_path, file), header = TRUE, sep = "\t", 
+                   stringsAsFactors = FALSE,fill = TRUE)
+  dat.tmp = dat[,c(1,2,3)]
+  LD_SNP_all = rbind(LD_SNP_all, dat.tmp)
+}
+write.csv(LD_SNP_all[-1,], '01_Met_Out/01_SNP_filter/LD_SNP_all.csv')
+```
+
+
+## 计算不同MR方法 (经典+新型)，同时计算异质性和MR-Egger多效性
+```{r}
+library(MRcML)
+folder_path = '01_Met_Out/00_SNP_selected/PRESSO_FINAL_ASD/'
+file_names = list.files(folder_path)
+
+## 循环开展MR
+result_total = data.frame()
+for (file_name in file_names){
+  file_path = paste(c(folder_path, file_name), collapse = '')
+  mr_dat = read.csv(file_path)
+  label = sub('.csv', '', sub('PRESSO_NULL_final_', '', sub("PRESSO_final_", '', file_name, )))
+  
+  result_temp = mr(mr_dat)
+  new_column = file_name
+  result_temp = cbind(new_column, result_temp); colnames(result_temp)[1] = 'Exposure'
+  
+  result_cML = mr_cML(mr_dat$beta.exposure,
+                       mr_dat$beta.outcome,
+                       mr_dat$se.exposure,
+                       mr_dat$se.outcome,
+                       n = 18340,
+                       random_start = 100,
+                       random_seed = 208)
+  result_cML_temp = data.frame(result_temp[1,1:5],
+                               'cML-MR',
+                               result_temp[1,7],
+                               result_cML$BIC_theta,
+                               result_cML$BIC_se,
+                               result_cML$BIC_p)
+  colnames(result_cML_temp) = c(colnames(result_temp)[1:5], 'method', 'nsnp','b','se','pval')
+  result_temp = rbind(result_temp, result_cML_temp)
+  
+  result_total = rbind(result_total, result_temp)
+  save_path = paste(c('01_Met_Out/03_results/Met_ASD_NotCheckConfounding'), collapse = '')
+  write.csv(result_total, save_path)
+}
+
+result_total = data.frame()
+for (file_name in file_names){
+    file_path = paste0(folder_path, file_name)
+    mr_dat = read.csv(file_path); mr_dat$X=NULL
+    pleiotropy = mr_pleiotropy_test(mr_dat)
+    heterogeneity = mr_heterogeneity(mr_dat)
+    label = sub('.csv', '', sub('PRESSO_NULL_final_', '', sub("PRESSO_final_", '', file_name, )))
+    result_temp = data.frame(
+               label,
+               'pleiotropy_test_Egger',
+               pleiotropy$egger_intercept, pleiotropy$se, pleiotropy$pval,
+               'heterogeneity_IVW',
+               heterogeneity$method[2], heterogeneity$Q[2], heterogeneity$Q_pval[2])
+    colnames(result_temp) = c('Exposure','Test-1',
+                              'Intercept', 'SE', 'p_val',
+                              'Test-2', 'Method','Q2', 'Q2_pval')
+    result_temp$Nsnp = dim(mr_dat)[1]
+    result_total = rbind(result_temp, result_total)
+    write.csv(result_total, paste(c('01_Met_Out/03_results/','Met_ASD_异质性&多效性检验_NotCheckConfounding.csv'), 
+                                  collapse = ''))
+}
+```
